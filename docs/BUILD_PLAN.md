@@ -91,17 +91,45 @@ Both support OTP (email first, SMS later) as the primary flow, with password as 
 
 OTP delivery itself goes through an **email adapter interface** — same pattern as storage. Ship a Resend adapter first (best DX for a new project), then Postmark and SES adapters as the interface stabilizes. Consumers can bring their own adapter if none of the built-ins fit.
 
-### 6. Query layer
+### 6. Permissions
+
+Roles and permissions live in tables, not scattered access-control functions — the clunky part of Payload's model is that "what can role X do" means grepping every collection file, and any change needs a redeploy. Data-driven means it's listable, editable, and auditable at runtime.
+
+```
+cms_roles           (id, name)
+cms_user_roles      (userId, roleId)               -- many-to-many; a user can hold multiple roles
+cms_permissions     (id, roleId, resource, action, scope, fields)
+  resource: a collection or single slug
+  action:   create | read | update | delete
+  scope:    JSON filter, same shape as the list-query filter DSL from the query layer — null = unrestricted, e.g. { authorId: '$currentUser' }
+  fields:   allow-list of field slugs — null = all fields
+```
+
+No bespoke rules language: **row-level scoping reuses the exact filter DSL the query layer already needs for `?where=` on list endpoints** — a permission's `scope` gets ANDed into every query for that role, same code path as user-supplied filters, just not optional. Field-level is a plain allow-list intersected into the response shape (read) and the accepted payload (write) — no per-field functions to write.
+
+Applies uniformly to **both auth domains**: CMS staff roles (e.g. "editor" can update `posts` but only ones where `authorId = $currentUser`) and app users (e.g. a default "self" role scoping every action on `orders` to `userId = $currentUser`). One mechanism, two audiences.
+
+Default posture is **deny by default**: no matching permission row for a given role + resource + action means no access, full stop — except a built-in super-admin role that bypasses the permission check entirely. Adding a new collection or single can't accidentally expose it; it starts locked down until a role is explicitly granted access.
+
+Row-level scope and field-level allow-lists both live in the schema from the first pass, even though early roles may only use the coarse collection/action grant — avoids a breaking migration later to add columns that should've been there from day one.
+
+### 7. Query layer
 
 Every collection gets generated REST endpoints (list/get/create/update/delete) with filtering, sorting, and pagination via query params. A thin typed client wraps these endpoints so consuming apps get autocomplete against their own collection definitions instead of hand-rolled fetch calls.
 
-### 7. Webhooks
+### 8. Webhooks
 
 Collection-level lifecycle hooks (`afterChange`, `afterDelete`, etc.) can dispatch signed HTTP webhooks (HMAC signature header) to configured endpoints, with retry/backoff.
 
-### 8. Storage
+### 9. Storage
 
 Pluggable storage interface; S3 (or S3-compatible, e.g. R2) adapter first, local-disk adapter for dev. Upload fields on a collection get presigned-URL upload flow + metadata stored in SQLite.
+
+### 10. Admin UI
+
+Ships as prebuilt static assets bundled with the package and mounted via Hono (`serveStatic` at e.g. `/cms/admin`) — like Payload's or Strapi's admin panels, the consuming app never touches the UI framework itself, so this choice is purely an internal build decision, not a compatibility constraint.
+
+**React**, for the ecosystem: TanStack Table + TanStack Query + react-hook-form + zod + shadcn/ui cover most of what a CRUD-heavy admin panel needs (dynamic forms/tables driven by the field-system schema, filter builders for the permissions scope DSL) with mature, composable pieces. Bundle size — Svelte's usual edge — matters less here since this is an internal tool for CMS staff, not a public-facing app.
 
 ## Suggested package layout
 
@@ -111,9 +139,11 @@ oxygen/
     core/         # Hono app factory, CRUD generator, config plumbing
     fields/       # independent field/type system + Drizzle translation layer
     auth/         # auth strategy interface, OTP implementation, cookie + JWT session handling
+    permissions/  # roles/permissions tables, scope-filter + field allow-list enforcement
     email/        # email adapter interface + Resend/Postmark/SES adapters
     storage/      # storage interface + S3 + local adapters
     client/       # typed REST client
+    admin/        # React admin UI, built to static assets, served via serveStatic
   docs/
 ```
 
@@ -127,11 +157,12 @@ Monorepo (pnpm workspaces) even at this size, since these are genuinely separabl
 4. **Email adapter interface + Resend adapter** — the interface other providers (Postmark, SES) will implement later; used by OTP delivery.
 5. **CMS user auth (OTP, cookie sessions)** — users collection, OTP request/verify endpoints, signed httpOnly cookie session issuance, auth middleware protecting CMS routes.
 6. **App user auth (OTP, JWT sessions)** — same OTP primitive, second auth domain, access + refresh JWT pair for app-user-facing routes.
-7. **Typed query client** — REST client generated from/aligned to collection definitions.
-8. **Webhooks** — hook registration on collections, dispatch + signing + retry.
-9. **S3 storage adapter** — upload fields, presigned URLs, local-disk dev adapter.
-10. **Custom route ergonomics + docs** — helpers for accessing db/auth context from routes mounted alongside oxygen; write the actual install/integration docs.
-11. **(Stretch) Admin UI** — thin panel over the REST API once the above is stable.
+7. **Permissions** — roles/user_roles/permissions tables; scope-filter enforcement spliced into the CRUD generator's query path, field allow-list enforcement on read/write; deny-by-default with a super-admin bypass. Depends on the filter DSL from the CRUD generator (phase 3) and both auth domains (phases 5–6) existing first.
+8. **Typed query client** — REST client generated from/aligned to collection definitions.
+9. **Webhooks** — hook registration on collections, dispatch + signing + retry.
+10. **S3 storage adapter** — upload fields, presigned URLs, local-disk dev adapter.
+11. **Custom route ergonomics + docs** — helpers for accessing db/auth context from routes mounted alongside oxygen; write the actual install/integration docs.
+12. **(Stretch) Admin UI** — React admin panel over the REST API (TanStack Table/Query, react-hook-form, shadcn/ui), built to static assets and served via Hono once the above is stable.
 
 ## Resolved decisions
 
@@ -141,3 +172,5 @@ Monorepo (pnpm workspaces) even at this size, since these are genuinely separabl
 - **Multi-tenancy**: no dedicated feature in v1; design rule is no global mutable state so nothing blocks it later.
 - **Database driver**: driver-agnostic via Drizzle's SQLite dialect (oxygen depends on none specifically); Turso recommended as the default for docs/example app. Edge/serverless runtime support is undecided, so this stays a recommendation, not a hard requirement, for now.
 - **Singles**: first-class primitive alongside collections (`defineSingle`), named "Singles" — same field system, narrower GET/PATCH-only REST surface, one row seeded at migration time.
+- **Permissions**: DB-backed roles/permissions tables (not Payload-style access-control functions), covering both CMS and app users. Row-level scope reuses the query-layer filter DSL; field-level is a plain allow-list. Deny by default, super-admin bypass. Scope and field columns included from the first schema pass rather than bolted on later.
+- **Admin UI framework**: React (TanStack Table/Query, react-hook-form, shadcn/ui), built to static assets and served via Hono `serveStatic` — an internal build choice, not a constraint on the consuming app's stack.
