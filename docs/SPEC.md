@@ -56,9 +56,9 @@ const SiteSettings = defineSingle({
 ```
 
 Same field system and hook lifecycle as collections, minus `auth` (singles are never auth-enabled).
-Backed by a table with exactly one row, seeded at migration time (`INSERT ... ON CONFLICT DO NOTHING`
-against a fixed `id` value — see [Primary keys](#primary-keys)), never created or deleted through the
-API.
+Backed by a table with exactly one row, never created or deleted through the API — see
+[Schema & migrations](#schema--migrations) for how and when that row actually gets seeded (it isn't a
+migration-time thing, despite the name; schema diffing can't produce data, only tables/columns).
 
 ### Primary keys
 
@@ -121,6 +121,67 @@ afterRead
 `beforeChange`/`beforeValidate` receive `(data, { operation: 'create' | 'update', previousDoc? })` and
 may return a modified `data`. `afterChange`/`afterDelete`/`afterRead` are fire-and-forget (webhooks hang
 off `afterChange`/`afterDelete`; return values ignored).
+
+## Schema & migrations
+
+`defineCollection`/`defineSingle` plus the field system are the only hand-maintained source of truth —
+oxygen never hand-writes Drizzle schema, and consumers never hand-write migrations. But turning that
+TypeScript config into an actual SQLite schema, and evolving it as collections change, needs a concrete
+mechanism — this is what `BUILD_PLAN.md`'s "drizzle-kit migrations" phrase left unresolved.
+
+**Rejected**: a fully dynamic runtime sync — introspect the live DB at `oxygen()` boot and auto-create/
+alter whatever's missing, no migration files at all. Auto-altering a production database on every deploy
+with no generated, reviewable diff invites exactly the kind of silent data loss a schema-as-code project
+shouldn't cause (a renamed field looking like a dropped column to a naive differ), and it would mean
+reimplementing schema diffing that drizzle-kit already does well. oxygen's job is to feed drizzle-kit a
+schema, not to replace it.
+
+**The actual mechanism**: the field-descriptor-to-Drizzle-columns translator
+([`docs/FIELDS.md`](./FIELDS.md#translation-layer-contract)) is a pure function, called from two places:
+
+1. **At runtime**, inside `oxygen({ db, collections, singles })` — builds the Drizzle table objects the
+   CRUD generator queries against, entirely in memory, every process boot. No file on disk in this path.
+2. **At dev time**, via a small CLI (`packages/core`'s `bin`) that imports the same collection/single
+   definitions and, instead of using the translated tables in memory, serializes them as real
+   `sqliteTable(...)` TypeScript source — drizzle-kit's CLI needs a static file to scan; it can't
+   introspect an in-memory object living in a different process.
+
+Consumers keep their collections in a small config file:
+
+```ts
+// oxygen.config.ts
+export default {
+  collections: [Posts, Users],
+  singles: [SiteSettings],
+}
+```
+
+and wire up two scripts:
+
+```json
+{
+  "scripts": {
+    "db:generate": "oxygen generate && drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  }
+}
+```
+
+`oxygen generate` reads `oxygen.config.ts` and writes `./drizzle/schema.generated.ts` — a build artifact,
+not something to hand-edit (gitignored by default, same as `dist/`). The consumer's own
+`drizzle.config.ts` points its `schema` at that generated file, exactly like any hand-written Drizzle
+project; `drizzle-kit generate` diffs it against the migrations folder and writes a new SQL migration,
+`drizzle-kit migrate` applies pending migrations to the live DB. Neither command belongs to oxygen —
+they're drizzle-kit's own, unmodified. oxygen's only job is producing the file drizzle-kit needs. Running
+migrations at deploy time (a CI step, a startup hook, whatever) stays entirely the consumer's call, same
+as any Drizzle project — oxygen doesn't wrap or run `drizzle-kit migrate` itself.
+
+### Singles' seed row
+
+A single's one row isn't something drizzle-kit's schema diffing can produce — it only generates schema
+(`CREATE TABLE`/`ALTER TABLE`), never data. So the seed row is ensured at **runtime** instead: every
+`oxygen({ singles, ... })` call idempotently `INSERT ... ON CONFLICT DO NOTHING`s each single's fixed row
+on construction, before returning the mountable Hono instance.
 
 ## Generated REST API
 
@@ -220,6 +281,32 @@ Fixed, framework-owned table `cms_users` (`id`, `email`, `createdAt`, `updatedAt
 | POST | `/auth/logout` | — | Clears cookie; `{ message }` |
 | GET | `/auth/me` | — | `{ user }` or `401` |
 
+#### Bootstrapping the first CMS user
+
+Deny-by-default permissions plus OTP-only auth (no signup form, no password to set) means there's
+normally no path to create the very first CMS user — there's nothing yet to grant them access to grant
+access with. Following this project's own stated Payload precedent, which unlocks an unauthenticated
+first-user flow only while its users collection is empty: **while `cms_users` has zero rows**,
+`/auth/otp/request` and `/auth/otp/verify` accept any email, and a successful verify creates that user
+and grants the built-in super-admin role, both inside one transaction (so two concurrent bootstrap
+attempts can't both succeed). The instant `cms_users` holds one row, that door closes permanently — every
+subsequent OTP verify requires the identity to already exist as a `cms_users` row. This is CMS-only; it
+has no effect on `auth: true` app-user collections, which never carry a super-admin concept to begin
+with.
+
+Creating additional CMS users after bootstrap (invite flow, role assignment) needs its own
+authenticated, permissioned endpoints — not yet in this spec, tracked as a follow-up alongside role/
+permission management generally, since `cms_roles`/`cms_permissions` have no REST surface defined yet
+either (BUILD_PLAN.md's tables exist; nothing here yet says how a super-admin edits them over the API
+rather than by hand in the DB).
+
+This mechanism is only as safe as the assumption that the deployment isn't already publicly reachable
+while `cms_users` is empty — the same assumption Payload itself makes: stand the instance up, claim the
+first admin, then open it to the world. For a deployment that can't guarantee that ordering,
+`otpAuth({ bootstrapToken })` adds one more gate: while bootstrapping, the request must also carry a
+matching `X-Oxygen-Bootstrap-Token` header, sourced from wherever the consumer's own deploy-time secrets
+live. Unset (the default) means bootstrap proceeds on the empty-table check alone.
+
 ### App user auth (OTP + JWT)
 
 Namespaced per auth-enabled collection slug, since a consumer may have more than one
@@ -250,7 +337,8 @@ Enforcement, per request:
 
 1. Resolve the current principal's roles (CMS session or app-user JWT both carry a role set — app users
    get an implicit default role, e.g. `self`, if none assigned).
-2. Super-admin role bypasses everything below entirely.
+2. Super-admin role bypasses everything below entirely — see
+   [Bootstrapping the first CMS user](#bootstrapping-the-first-cms-user) for how anyone ever gets it.
 3. Gather all `cms_permissions` rows matching `(resource = <collection/single slug>, action)`. No rows
    → `403`.
 4. **Scope**: OR each matching row's `scope` together (a user holding multiple roles gets the union of
