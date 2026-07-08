@@ -1,2 +1,16 @@
 // Phase 2 — field/type system + Drizzle translation layer — see docs/BUILD_PLAN.md
-export {}
+
+export type { AnyFieldBuilder, FieldMap } from './builder.js'
+export * from './descriptor.js'
+export * from './leaf.js'
+export * from './select.js'
+export * from './relation.js'
+export * from './upload.js'
+export * from './group.js'
+export * from './array.js'
+export * from './blocks.js'
+export * from './define.js'
+export * from './infer.js'
+export * from './validate.js'
+export * from './collision.js'
+export * from './translate.js'
