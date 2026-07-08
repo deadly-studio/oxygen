@@ -1,0 +1,63 @@
+import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+/**
+ * Framework-owned tables backing CMS user auth — see
+ * docs/SPEC.md#cms-user-auth-otp--cookie-sessions. `cmsRoles`/`cmsUserRoles`
+ * are the minimal slice of BUILD_PLAN.md#6-permissions' role tables pulled
+ * forward: bootstrapping (docs/SPEC.md#bootstrapping-the-first-cms-user)
+ * needs somewhere to record "this user is super-admin" even though scope/
+ * field enforcement (`cms_permissions`, phase 7) doesn't exist yet — shaped
+ * to match BUILD_PLAN.md's schema exactly so phase 7 only adds a table
+ * rather than reworking these two.
+ */
+export const cmsUsers = sqliteTable('cms_users', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull().unique(),
+  createdAt: integer('createdAt', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updatedAt', { mode: 'timestamp' }).notNull(),
+})
+
+export const cmsRoles = sqliteTable('cms_roles', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+})
+
+export const cmsUserRoles = sqliteTable(
+  'cms_user_roles',
+  {
+    userId: text('userId')
+      .notNull()
+      .references(() => cmsUsers.id, { onDelete: 'cascade' }),
+    roleId: text('roleId')
+      .notNull()
+      .references(() => cmsRoles.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.roleId] })],
+)
+
+/** Shared by both auth domains via `purpose` (`cms` | `app:<slug>`) — see docs/SPEC.md#app-user-auth-otp--jwt. */
+export const cmsOtpCodes = sqliteTable('cms_otp_codes', {
+  id: text('id').primaryKey(),
+  identifier: text('identifier').notNull(),
+  codeHash: text('codeHash').notNull(),
+  purpose: text('purpose').notNull(),
+  expiresAt: integer('expiresAt', { mode: 'timestamp' }).notNull(),
+  consumedAt: integer('consumedAt', { mode: 'timestamp' }),
+  attempts: integer('attempts').notNull().default(0),
+})
+
+/** One row per signed-in session; deleting a row revokes it — see docs/BUILD_PLAN.md#5-two-auth-domains. */
+export const cmsSessions = sqliteTable('cms_sessions', {
+  id: text('id').primaryKey(),
+  userId: text('userId')
+    .notNull()
+    .references(() => cmsUsers.id, { onDelete: 'cascade' }),
+  expiresAt: integer('expiresAt', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('createdAt', { mode: 'timestamp' }).notNull(),
+})
+
+/** Bypasses permission checks entirely once phase 7 lands — see docs/BUILD_PLAN.md#6-permissions. Granted to the bootstrap user. */
+export const SUPER_ADMIN_ROLE = 'super-admin'
+
+/** For pushing/generating physical schema alongside a consumer's own collections until docs/SPEC.md#schema--migrations' `oxygen generate` CLI exists. */
+export const cmsAuthTables = { cmsUsers, cmsRoles, cmsUserRoles, cmsOtpCodes, cmsSessions }

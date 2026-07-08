@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import type { CollectionConfig, SingleConfig } from '@deadly-studio/oxygen-fields'
+import type { CmsAuthStrategy } from './auth.js'
 import { seedSingleRow } from './crud.js'
 import type { OxygenDatabase } from './database.js'
 import { createCollectionRouter } from './routes/collections.js'
@@ -11,6 +12,8 @@ export interface OxygenConfig {
   db: OxygenDatabase
   collections?: CollectionConfig[]
   singles?: SingleConfig[]
+  /** `app` (JWT, per auth-enabled collection) isn't built yet — see docs/BUILD_PLAN.md#5-two-auth-domains. */
+  auth?: { cms?: CmsAuthStrategy }
 }
 
 /**
@@ -28,6 +31,14 @@ export function oxygen(config: OxygenConfig): Hono {
   const schema = resolveSchema(collections, singles)
 
   const app = new Hono()
+
+  const cmsAuth = config.auth?.cms
+  if (cmsAuth) {
+    // Registered ahead of the collections/singles routers so it wraps them — see docs/SPEC.md#auth.
+    app.use('/collections/*', cmsAuth.middleware(db))
+    app.use('/singles/*', cmsAuth.middleware(db))
+    app.route('/auth', cmsAuth.createRouter(db))
+  }
 
   const collectionsRouter = new Hono()
   for (const resource of schema.collections.values()) {
