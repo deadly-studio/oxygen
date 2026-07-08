@@ -176,12 +176,28 @@ they're drizzle-kit's own, unmodified. oxygen's only job is producing the file d
 migrations at deploy time (a CI step, a startup hook, whatever) stays entirely the consumer's call, same
 as any Drizzle project — oxygen doesn't wrap or run `drizzle-kit migrate` itself.
 
+**Not yet implemented**: this section describes the intended mechanism, but `oxygen generate` and the
+`schema.generated.ts` file it would produce don't exist yet — only path 1 above (the runtime, in-memory
+table build inside `oxygen()`) is built so far. A consumer today has to create physical tables some other
+way (e.g. driving `drizzle-kit push`/`generate` off a hand-written schema that happens to match) until
+the CLI lands. Tracked as a follow-up alongside the other gaps this spec flags (role/permission REST
+surface, CMS user invite endpoints).
+
 ### Singles' seed row
 
 A single's one row isn't something drizzle-kit's schema diffing can produce — it only generates schema
-(`CREATE TABLE`/`ALTER TABLE`), never data. So the seed row is ensured at **runtime** instead: every
-`oxygen({ singles, ... })` call idempotently `INSERT ... ON CONFLICT DO NOTHING`s each single's fixed row
-on construction, before returning the mountable Hono instance.
+(`CREATE TABLE`/`ALTER TABLE`), never data. So the seed row is ensured at **runtime** instead, via an
+`INSERT ... ON CONFLICT DO NOTHING` against a fixed row id (`'singleton'`, not a fresh `ulid()` per
+process boot — the whole point is that repeat inserts collide with the *same* existing row, which a
+random id per boot could never do).
+
+`oxygen()` itself stays synchronous (it returns a mountable Hono instance directly, per
+[the mount-point example](./BUILD_PLAN.md#4-the-hono-mount-point)) but the seed insert is inherently
+async, so it can't literally complete "before returning" as originally described here. Instead, each
+single's GET/PATCH handler awaits a per-single memoized seed promise before touching the table — kicked
+off the first time either route is hit, not at construction. Functionally equivalent (nothing can observe
+an unseeded single, since the only way to observe one is through those two routes) without requiring
+`oxygen()` to become async.
 
 ## Generated REST API
 
@@ -197,7 +213,7 @@ plan's example — routes below are relative to that mount point).
 | POST | `/collections/:slug` | create |
 | PATCH | `/collections/:slug/:id` | update |
 | DELETE | `/collections/:slug/:id` | delete — hard delete in v1, no soft-delete/trash/restore |
-| POST | `/collections/:slug/upload-url` | presigned upload URL, only present if the collection has an `upload()` field — see [Storage](#storage) |
+| POST | `/collections/:slug/upload-url` | presigned upload URL, only present if the collection has an `upload()` field — see [Storage](#storage). **Not yet implemented**: depends on the storage adapter interface (phase 10), not built yet |
 | GET | `/collections/:slug/fields/:field/options` | resolved `{ value, label }` options for a `select()` field, only present on `select()` fields — see `docs/FIELDS.md` |
 
 ### Singles
@@ -248,14 +264,19 @@ Get one / single GET: the raw document, unwrapped.
 Create / update / single PATCH:
 
 ```jsonc
-{ "message": "Post created.", "doc": { /* ... */ } }
+{ "message": "posts created.", "doc": { /* ... */ } }
 ```
 
 Delete:
 
 ```jsonc
-{ "message": "Post deleted." }
+{ "message": "posts deleted." }
 ```
+
+Messages use the collection/single's own `slug` verbatim rather than a singularized, capitalized label
+("Post" for `posts`) — deriving that from an arbitrary `[a-z][a-z0-9-]*` slug (irregular plurals,
+multi-word slugs like `site-settings`) isn't reliably possible, and a wrong guess is worse than the
+plain slug.
 
 ### Errors
 
@@ -265,7 +286,9 @@ Delete:
 
 `field` omitted for non-field-scoped errors (auth failures, not-found, etc.). Status codes: `400`
 validation, `401` unauthenticated, `403` forbidden (permission denied), `404` not found, `409` conflict
-(e.g. unique constraint), `500` unhandled.
+(e.g. unique or foreign key constraint), `500` unhandled. Success statuses aren't a point of contention
+the way error codes are, but for completeness: `201` for a collection create, `200` everywhere else
+(get/list/update/delete/single).
 
 ## Auth
 
