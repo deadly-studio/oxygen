@@ -62,9 +62,11 @@ against a fixed `id = 1`), never created or deleted through the API.
 ### Field catalog
 
 Every field builder supports a common chainable base: `.required()`, `.unique()`, `.default(value)`,
-`.index()`, `.condition((siblingData, fullDoc) => boolean)`. `condition` is validation-only in v1 (no
-admin UI to hide/show yet) — a field whose condition evaluates false is treated as absent: not required
-even if `.required()` is set, and rejected if a value is submitted anyway.
+`.index()`, `.condition((siblingData, fullDoc) => boolean)`, `.validate(fn)`. `condition` is
+validation-only in v1 (no admin UI to hide/show yet) — a field whose condition evaluates false is
+treated as absent: not required even if `.required()` is set, and rejected if a value is submitted
+anyway. `.validate(fn)` is a stackable, async-capable custom validator on top of the type-specific
+constraints (`.minLength()`/`.matches()`/`.min()`/`.max()`/`.minRows()`/etc.) each builder exposes.
 
 This is the quick-reference table — see [`docs/FIELDS.md`](./FIELDS.md) for the builder API, the
 translation-layer contract, and how document types get inferred from a field map.
@@ -76,7 +78,7 @@ translation-layer contract, and how document types get inferred from a field map
 | `richText()` | `TEXT` | Stores an opaque JSON string. No structure enforced in v1 — the eventual admin UI editor owns the shape; the API treats it as pass-through JSON |
 | `number()` | `INTEGER` or `REAL` | `.int()` forces `INTEGER`; default is `REAL`. `.min()`, `.max()` |
 | `boolean()` | `INTEGER` (0/1) | |
-| `select(options)` | `TEXT` | `options: string[] \| { value, label }[]`. `.hasMany()` switches storage to a JSON array column |
+| `select(options)` | `TEXT` | `options: string[] \| { value, label }[] \| ((ctx) => Promise<...>)` — async loaders supported, see `docs/FIELDS.md`. `.hasMany()` switches storage to a JSON array column |
 | `date()` / `timestamp()` | `INTEGER` (unix ms, Drizzle `{ mode: 'timestamp' }`) | `.default('now')` |
 | `relation(slug)` | `INTEGER` (FK id) | `.hasMany()` switches to a JSON array-of-ids column — **v1 simplification**: hasMany relations aren't joinable in SQL, just fetched and hydrated app-side |
 | `upload(slug?)` | flattened group: `key`, `filename`, `mimeType`, `filesize` (all `TEXT`/`INTEGER`) | `.accept(mimeTypes[])`. `slug` names which storage adapter/bucket config to use if more than one is configured |
@@ -114,6 +116,7 @@ plan's example — routes below are relative to that mount point).
 | PATCH | `/collections/:slug/:id` | update |
 | DELETE | `/collections/:slug/:id` | delete |
 | POST | `/collections/:slug/upload-url` | presigned upload URL, only present if the collection has an `upload()` field — see [Storage](#storage) |
+| GET | `/collections/:slug/fields/:field/options` | resolved `{ value, label }` options for a `select()` field, only present on `select()` fields — see `docs/FIELDS.md` |
 
 ### Singles
 
