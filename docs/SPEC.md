@@ -348,6 +348,46 @@ Enforcement, per request:
    grants all fields. Read: strip disallowed fields from the response. Write: reject a payload touching
    a disallowed field with a `403` field error rather than silently dropping it.
 
+### Managing roles & permissions
+
+Closes the gap flagged earlier: `cms_roles`/`cms_permissions` had tables but no REST surface. These
+endpoints are **super-admin only in v1** — not governed by the permission system they themselves edit.
+Letting permissions manage permissions is a regress this project doesn't need yet (who grants the grant
+to edit grants?); a delegated "role administration" permission is a plausible v1.1, not a v1 requirement.
+
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| GET | `/roles` | — | List roles, each with a member count |
+| POST | `/roles` | `{ name }` | |
+| PATCH | `/roles/:id` | `{ name }` | |
+| DELETE | `/roles/:id` | — | Rejected for the built-in super-admin role (see below) |
+| GET | `/roles/:id/permissions` | — | List this role's grants |
+| POST | `/roles/:id/permissions` | `{ resource, actions: Action[], scope, fields }` | Creates one `cms_permissions` row per action in `actions` — a convenience batch for granting several actions the same scope/fields in one call, not a change to the one-row-per-action data model |
+| PATCH | `/roles/:id/permissions/:permissionId` | `{ scope?, fields? }` | `resource`/`action` aren't editable — retargeting either is really a different grant; delete and re-create instead |
+| DELETE | `/roles/:id/permissions/:permissionId` | — | |
+| GET | `/roles/:id/members` | — | CMS users holding this role |
+| POST | `/roles/:id/members` | `{ userId }` | |
+| DELETE | `/roles/:id/members/:userId` | — | Rejected if it would leave the super-admin role with zero members — same lockout concern as [bootstrapping](#bootstrapping-the-first-cms-user) |
+
+`resource` must match a currently configured collection/single slug; `fields` (when not `null`) must be
+a subset of that resource's top-level field-map keys — group/array/blocks internals aren't independently
+addressable, matching the granularity `BUILD_PLAN.md`'s "allow-list of field slugs" already implied.
+`scope` is validated as well-formed filter DSL (same grammar as `?where=`), not checked against real
+column names beyond that.
+
+The **super-admin role itself is seeded** (like a single's row — see
+[Schema & migrations](#schema--migrations)) rather than something a consumer creates, and is protected
+from both rename and delete: it's the thing the [bootstrap flow](#bootstrapping-the-first-cms-user)
+grants, so it has to keep existing and keep meaning "bypass everything."
+
+CMS user management (list, invite) sits alongside this rather than inside it:
+
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| GET | `/users` | — | List CMS users, each with their assigned roles |
+| POST | `/users/invite` | `{ email, roleIds? }` | Creates a `cms_users` row (no password/OTP yet — they authenticate themselves via the normal `/auth/otp` flow once invited) and optionally assigns initial roles |
+| DELETE | `/users/:id` | — | Same super-admin-lockout guard as revoking a role membership |
+
 ## Webhooks
 
 Registered as a hook helper, not a separately managed REST resource in v1:
