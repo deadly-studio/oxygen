@@ -136,7 +136,7 @@ Ships as prebuilt static assets bundled with the package and mounted via Hono (`
 ```
 oxygen/
   packages/
-    core/         # Hono app factory, CRUD generator, config plumbing
+    core/         # Hono app factory, CRUD generator, config plumbing, schema-generation CLI (see docs/SPEC.md § Schema & migrations)
     fields/       # independent field/type system + Drizzle translation layer
     auth/         # auth strategy interface, OTP implementation, cookie + JWT session handling
     permissions/  # roles/permissions tables, scope-filter + field allow-list enforcement
