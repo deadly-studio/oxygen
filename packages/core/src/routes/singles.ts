@@ -2,7 +2,9 @@ import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { getDocument, updateDocument, ValidationFailure } from '../crud.js'
 import type { OxygenDatabase } from '../database.js'
-import { errorResponse, isForeignKeyConstraintError, isUniqueConstraintError } from '../errors.js'
+import { errorResponse, isForeignKeyConstraintError, isUniqueConstraintError, notFound } from '../errors.js'
+import { pickAllowedFields, rejectDisallowedFields, requireGrant } from '../permissions.js'
+import type { PermissionsStrategy } from '../permissions.js'
 import type { ResolvedResource } from '../schema.js'
 
 async function readJsonBody(c: Context): Promise<Record<string, unknown> | null> {
@@ -22,22 +24,35 @@ async function readJsonBody(c: Context): Promise<Record<string, unknown> | null>
  * factory (see docs/SPEC.md#schema--migrations) and can't block on the
  * async seed insert before returning.
  */
-export function createSingleRouter(resource: ResolvedResource, db: OxygenDatabase, ensureSeeded: () => Promise<void>): Hono {
+export function createSingleRouter(
+  resource: ResolvedResource,
+  db: OxygenDatabase,
+  ensureSeeded: () => Promise<void>,
+  permissions?: PermissionsStrategy,
+): Hono {
   const app = new Hono()
 
   app.get('/', async (c) => {
     await ensureSeeded()
-    const doc = await getDocument(db, resource)
-    return c.json(doc)
+    const grant = await requireGrant(db, c, permissions, resource, 'read')
+    if (grant instanceof Response) return grant
+    const doc = await getDocument(db, resource, undefined, grant.scope)
+    if (!doc) return notFound(c)
+    return c.json(pickAllowedFields(doc, grant.fields))
   })
 
   app.patch('/', async (c) => {
     await ensureSeeded()
+    const grant = await requireGrant(db, c, permissions, resource, 'update')
+    if (grant instanceof Response) return grant
     const body = await readJsonBody(c)
     if (!body) return errorResponse(c, 400, [{ message: 'Request body must be a JSON object.' }])
+    const fieldError = rejectDisallowedFields(c, body, grant.fields)
+    if (fieldError) return fieldError
     try {
-      const doc = await updateDocument(db, resource, body)
-      return c.json({ message: `${resource.slug} updated.`, doc })
+      const doc = await updateDocument(db, resource, body, undefined, grant.scope)
+      if (!doc) return notFound(c)
+      return c.json({ message: `${resource.slug} updated.`, doc: pickAllowedFields(doc, grant.fields) })
     } catch (error) {
       if (error instanceof ValidationFailure) return errorResponse(c, 400, error.errors)
       if (isUniqueConstraintError(error)) {

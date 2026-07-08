@@ -3,6 +3,7 @@ import type { CollectionConfig, SingleConfig } from '@deadly-studio/oxygen-field
 import type { AppAuthStrategy, CmsAuthStrategy } from './auth.js'
 import { seedSingleRow } from './crud.js'
 import type { OxygenDatabase } from './database.js'
+import type { PermissionsStrategy } from './permissions.js'
 import { createCollectionRouter } from './routes/collections.js'
 import { createSingleRouter } from './routes/singles.js'
 import { resolveSchema } from './schema.js'
@@ -13,6 +14,8 @@ export interface OxygenConfig {
   collections?: CollectionConfig[]
   singles?: SingleConfig[]
   auth?: { cms?: CmsAuthStrategy; app?: AppAuthStrategy }
+  /** Applies uniformly to both auth domains — see docs/SPEC.md#permissions. Unconfigured means unrestricted access, same as every phase before this one. */
+  permissions?: PermissionsStrategy
 }
 
 /**
@@ -33,10 +36,17 @@ export function oxygen(config: OxygenConfig): Hono {
 
   const cmsAuth = config.auth?.cms
   if (cmsAuth) {
-    // Registered ahead of the collections/singles routers so it wraps them — see docs/SPEC.md#auth.
-    app.use('/collections/*', cmsAuth.middleware(db))
-    app.use('/singles/*', cmsAuth.middleware(db))
     app.route('/auth', cmsAuth.createRouter(db))
+    // Registered ahead of the collections/singles routers so it wraps them — see docs/SPEC.md#auth.
+    // Skipped when a PermissionsStrategy is configured: that layer identifies
+    // the principal itself (CMS session or app-user bearer JWT, uniformly
+    // across both auth domains — docs/SPEC.md#permissions) and denies with
+    // its own 403, so this blocking cookie-only gate would otherwise 401 a
+    // valid app-user request before it ever reaches that check.
+    if (!config.permissions) {
+      app.use('/collections/*', cmsAuth.middleware(db))
+      app.use('/singles/*', cmsAuth.middleware(db))
+    }
   }
 
   const appAuth = config.auth?.app
@@ -51,15 +61,17 @@ export function oxygen(config: OxygenConfig): Hono {
     app.route(`/app/${collectionConfig.slug}/auth`, appAuth.createRouter(db, schema.collections.get(collectionConfig.slug)!))
   }
 
+  const { permissions } = config
+
   const collectionsRouter = new Hono()
   for (const resource of schema.collections.values()) {
-    collectionsRouter.route(`/${resource.slug}`, createCollectionRouter(resource, db))
+    collectionsRouter.route(`/${resource.slug}`, createCollectionRouter(resource, db, permissions))
   }
   app.route('/collections', collectionsRouter)
 
   const singlesRouter = new Hono()
   for (const resource of schema.singles.values()) {
-    singlesRouter.route(`/${resource.slug}`, createSingleRouter(resource, db, ensureSingleSeeded(db, resource)))
+    singlesRouter.route(`/${resource.slug}`, createSingleRouter(resource, db, ensureSingleSeeded(db, resource), permissions))
   }
   app.route('/singles', singlesRouter)
 

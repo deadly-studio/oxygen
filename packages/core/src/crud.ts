@@ -1,4 +1,4 @@
-import { asc, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import { validateDocument } from '@deadly-studio/oxygen-fields'
 import type { FieldError } from '@deadly-studio/oxygen-fields'
@@ -21,14 +21,18 @@ export class ValidationFailure extends Error {
 /**
  * Fetches one row. `id` narrows to a single collection document; omitted, it
  * fetches a single's sole row (docs/SPEC.md#singles) — there's never more
- * than one, so no filter is needed to disambiguate.
+ * than one, so no filter is needed to disambiguate. `scope` is a permission
+ * grant's row-level filter (docs/SPEC.md#permissions), ANDed into the same
+ * lookup — a row that exists but falls outside `scope` looks identical to a
+ * missing one, same as the id-only case, rather than a separate 403.
  */
 export async function getDocument(
   db: OxygenDatabase,
   resource: ResolvedResource,
   id?: string,
+  scope?: SQL,
 ): Promise<Doc | undefined> {
-  const row = await getExistingRow(db, resource, id)
+  const row = await getExistingRow(db, resource, id, scope)
   if (!row) return undefined
   const doc = rowToDoc(resource.fields, row)
   runDocHooks(resource.hooks?.afterRead, doc)
@@ -117,15 +121,19 @@ export async function createDocument(db: OxygenDatabase, resource: ResolvedResou
  * happens to be there — there's only ever one, see docs/SPEC.md#singles.
  * Validates the *merged* document (previous row + patch) so a PATCH that
  * doesn't touch a required field isn't rejected for "missing" it, while
- * still only ever writing the columns the patch actually named.
+ * still only ever writing the columns the patch actually named. `scope` is
+ * a permission grant's row-level filter (docs/SPEC.md#permissions) — once
+ * `existingRow` has been fetched through it, the actual UPDATE's own `where`
+ * only needs the id (the row is already confirmed in-scope).
  */
 export async function updateDocument(
   db: OxygenDatabase,
   resource: ResolvedResource,
   rawPatch: Doc,
   id?: string,
+  scope?: SQL,
 ): Promise<Doc | undefined> {
-  const existingRow = await getExistingRow(db, resource, id)
+  const existingRow = await getExistingRow(db, resource, id, scope)
   if (!existingRow) return undefined
   const previousDoc = rowToDoc(resource.fields, existingRow)
   const ctx = { operation: 'update' as const, previousDoc }
@@ -150,8 +158,14 @@ export async function updateDocument(
   return doc
 }
 
-export async function deleteDocument(db: OxygenDatabase, resource: ResolvedResource, id: string): Promise<Doc | undefined> {
-  const existingRow = await getExistingRow(db, resource, id)
+/** `scope` is a permission grant's row-level filter (docs/SPEC.md#permissions) — the row must be fetched through it before it can be deleted. */
+export async function deleteDocument(
+  db: OxygenDatabase,
+  resource: ResolvedResource,
+  id: string,
+  scope?: SQL,
+): Promise<Doc | undefined> {
+  const existingRow = await getExistingRow(db, resource, id, scope)
   if (!existingRow) return undefined
   const doc = rowToDoc(resource.fields, existingRow)
 
@@ -161,9 +175,11 @@ export async function deleteDocument(db: OxygenDatabase, resource: ResolvedResou
   return doc
 }
 
-async function getExistingRow(db: OxygenDatabase, resource: ResolvedResource, id?: string): Promise<Doc | undefined> {
+async function getExistingRow(db: OxygenDatabase, resource: ResolvedResource, id?: string, scope?: SQL): Promise<Doc | undefined> {
   let query = db.select().from(resource.table).$dynamic()
-  if (id !== undefined) query = query.where(eq(resource.columns.id!, id))
+  const idCondition = id !== undefined ? eq(resource.columns.id!, id) : undefined
+  const where = idCondition && scope ? and(idCondition, scope) : (idCondition ?? scope)
+  if (where) query = query.where(where)
   return (await query.get()) as Doc | undefined
 }
 

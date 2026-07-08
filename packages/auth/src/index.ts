@@ -2,6 +2,10 @@
 export { otpAuth, CMS_USER_CONTEXT_KEY } from './cms-auth.js'
 export type { OtpAuthOptions } from './cms-auth.js'
 export type { CmsUser } from './session.js'
+// Reused by permissions-strategy implementations (e.g. @deadly-studio/oxygen-permissions) to
+// identify a CMS-session principal without depending on the CMS auth middleware having run
+// first — see docs/SPEC.md#permissions.
+export { resolveSessionUser } from './session.js'
 export { appOtpAuth } from './app-auth.js'
 export type { AppOtpAuthOptions } from './app-auth.js'
 export { verifyAccessToken } from './app-tokens.js'

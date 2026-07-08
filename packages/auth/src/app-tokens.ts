@@ -25,15 +25,21 @@ async function signAccessToken(jwtSecret: string, payload: AppTokenPayload): Pro
 }
 
 /**
- * Verifies a bearer access token minted for `slug`. This is the only public
- * surface for "who is this app user" until docs/BUILD_PLAN.md#11-custom-route-ergonomics-docs
- * lands helpers for a consumer's own routes mounted alongside `oxygen()` —
- * until then, call this directly.
+ * Verifies a bearer access token's signature and expiry, returning whichever
+ * collection it was minted for (`payload.slug`) rather than asserting one —
+ * a request against an arbitrary resource (docs/SPEC.md#permissions) has no
+ * way to know in advance which auth-enabled collection's login the caller
+ * used, unlike `rotateRefreshToken`, which is always reached through that
+ * collection's own `/app/:slug/auth/refresh` route. Callers that do need a
+ * specific collection (e.g. that route's own use) can compare `payload.slug`
+ * themselves. This is the only public surface for "who is this app user"
+ * until docs/BUILD_PLAN.md#11-custom-route-ergonomics-docs lands helpers for
+ * a consumer's own routes mounted alongside `oxygen()`.
  */
-export async function verifyAccessToken(jwtSecret: string, slug: string, token: string): Promise<AppTokenPayload | undefined> {
+export async function verifyAccessToken(jwtSecret: string, token: string): Promise<AppTokenPayload | undefined> {
   try {
     const payload = await Jwt.verify(token, jwtSecret, JWT_ALG)
-    if (typeof payload.sub !== 'string' || payload.slug !== slug) return undefined
+    if (typeof payload.sub !== 'string' || typeof payload.slug !== 'string') return undefined
     return { sub: payload.sub, slug: payload.slug }
   } catch {
     return undefined

@@ -11,6 +11,8 @@ import {
 } from '../crud.js'
 import type { OxygenDatabase } from '../database.js'
 import { errorResponse, isForeignKeyConstraintError, isUniqueConstraintError, notFound } from '../errors.js'
+import { combineWhere, pickAllowedFields, rejectDisallowedFields, requireGrant } from '../permissions.js'
+import type { PermissionsStrategy } from '../permissions.js'
 import type { ResolvedResource } from '../schema.js'
 import { buildWhere, parsePagination, parseSort, parseWhereParam, QueryError } from '../where.js'
 
@@ -28,7 +30,7 @@ function normalizeOption(option: SelectOption): { value: string; label: string }
 }
 
 /** Generated CRUD routes for one collection — see docs/SPEC.md#generated-rest-api. Paths are relative to the `/collections/:slug` mount point. */
-export function createCollectionRouter(resource: ResolvedResource, db: OxygenDatabase): Hono {
+export function createCollectionRouter(resource: ResolvedResource, db: OxygenDatabase, permissions?: PermissionsStrategy): Hono {
   const app = new Hono()
 
   // Registered ahead of `/:id` — `fields` is a literal path segment so it
@@ -60,11 +62,15 @@ export function createCollectionRouter(resource: ResolvedResource, db: OxygenDat
   })
 
   app.get('/', async (c) => {
+    const grant = await requireGrant(db, c, permissions, resource, 'read')
+    if (grant instanceof Response) return grant
     try {
-      const where = buildWhere(resource.columns, parseWhereParam(c.req.query('where')))
+      const userWhere = buildWhere(resource.columns, parseWhereParam(c.req.query('where')))
+      const where = combineWhere(userWhere, grant.scope)
       const sort = parseSort(resource.columns, c.req.query('sort'))
       const { limit, page } = parsePagination(c.req.query('limit'), c.req.query('page'))
       const result = await listDocuments(db, resource, { where, sort, limit, page })
+      result.docs = result.docs.map((doc) => pickAllowedFields(doc, grant.fields))
       return c.json(result)
     } catch (error) {
       if (error instanceof QueryError) return errorResponse(c, 400, [{ message: error.message }])
@@ -73,36 +79,48 @@ export function createCollectionRouter(resource: ResolvedResource, db: OxygenDat
   })
 
   app.get('/:id', async (c) => {
-    const doc = await getDocument(db, resource, c.req.param('id'))
+    const grant = await requireGrant(db, c, permissions, resource, 'read')
+    if (grant instanceof Response) return grant
+    const doc = await getDocument(db, resource, c.req.param('id'), grant.scope)
     if (!doc) return notFound(c)
-    return c.json(doc)
+    return c.json(pickAllowedFields(doc, grant.fields))
   })
 
   app.post('/', async (c) => {
+    const grant = await requireGrant(db, c, permissions, resource, 'create')
+    if (grant instanceof Response) return grant
     const body = await readJsonBody(c)
     if (!body) return errorResponse(c, 400, [{ message: 'Request body must be a JSON object.' }])
+    const fieldError = rejectDisallowedFields(c, body, grant.fields)
+    if (fieldError) return fieldError
     try {
       const doc = await createDocument(db, resource, body)
-      return c.json({ message: `${resource.slug} created.`, doc }, 201)
+      return c.json({ message: `${resource.slug} created.`, doc: pickAllowedFields(doc, grant.fields) }, 201)
     } catch (error) {
       return handleWriteError(c, error)
     }
   })
 
   app.patch('/:id', async (c) => {
+    const grant = await requireGrant(db, c, permissions, resource, 'update')
+    if (grant instanceof Response) return grant
     const body = await readJsonBody(c)
     if (!body) return errorResponse(c, 400, [{ message: 'Request body must be a JSON object.' }])
+    const fieldError = rejectDisallowedFields(c, body, grant.fields)
+    if (fieldError) return fieldError
     try {
-      const doc = await updateDocument(db, resource, body, c.req.param('id'))
+      const doc = await updateDocument(db, resource, body, c.req.param('id'), grant.scope)
       if (!doc) return notFound(c)
-      return c.json({ message: `${resource.slug} updated.`, doc })
+      return c.json({ message: `${resource.slug} updated.`, doc: pickAllowedFields(doc, grant.fields) })
     } catch (error) {
       return handleWriteError(c, error)
     }
   })
 
   app.delete('/:id', async (c) => {
-    const doc = await deleteDocument(db, resource, c.req.param('id'))
+    const grant = await requireGrant(db, c, permissions, resource, 'delete')
+    if (grant instanceof Response) return grant
+    const doc = await deleteDocument(db, resource, c.req.param('id'), grant.scope)
     if (!doc) return notFound(c)
     return c.json({ message: `${resource.slug} deleted.` })
   })

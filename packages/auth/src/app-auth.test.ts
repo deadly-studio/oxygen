@@ -56,7 +56,7 @@ describe('appOtpAuth (app user auth)', () => {
     expect(typeof body.accessToken).toBe('string')
     expect(typeof body.refreshToken).toBe('string')
 
-    const payload = await verifyAccessToken(JWT_SECRET, 'customers', body.accessToken)
+    const payload = await verifyAccessToken(JWT_SECRET, body.accessToken)
     expect(payload).toEqual({ sub: body.user.id, slug: 'customers' })
   })
 
@@ -76,14 +76,18 @@ describe('appOtpAuth (app user auth)', () => {
     expect(second.user.id).toBe(first.user.id)
   })
 
-  it('rejects an access token verified against the wrong collection slug', async () => {
+  it('rejects a garbage or wrongly-signed access token, and rejects nothing about which collection minted a valid one', async () => {
     await app.request('/app/customers/auth/otp/request', postJson({ identifier: 'new@example.com' }))
     const code = codeFrom(email.sent[0]!)
     const body = await readJson(
       await app.request('/app/customers/auth/otp/verify', postJson({ identifier: 'new@example.com', code })),
     )
 
-    expect(await verifyAccessToken(JWT_SECRET, 'vendors', body.accessToken)).toBeUndefined()
+    expect(await verifyAccessToken(JWT_SECRET, 'not-a-jwt')).toBeUndefined()
+    expect(await verifyAccessToken('wrong-secret', body.accessToken)).toBeUndefined()
+    // A caller that does care which collection minted the token compares payload.slug itself.
+    const payload = await verifyAccessToken(JWT_SECRET, body.accessToken)
+    expect(payload?.slug).toBe('customers')
   })
 
   it('rotates the refresh token, invalidating the old one', async () => {

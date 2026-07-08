@@ -11,3 +11,7 @@ export { ulid } from './ulid.js'
 export { errorResponse, notFound } from './errors.js'
 // `ResolvedResource` is `AppAuthStrategy.createRouter`'s second argument — see docs/SPEC.md#app-user-auth-otp--jwt.
 export type { ResolvedResource } from './schema.js'
+// Reused by permissions-strategy implementations (e.g. @deadly-studio/oxygen-permissions) — see docs/SPEC.md#permissions.
+export type { PermissionAction, PermissionGrant, PermissionsStrategy } from './permissions.js'
+// `cms_permissions.scope` is the exact same filter grammar as `?where=` — see docs/SPEC.md#permissions.
+export { buildWhere } from './where.js'
