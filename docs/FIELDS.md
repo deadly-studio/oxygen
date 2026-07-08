@@ -86,63 +86,77 @@ form), not a breaking one.
 | `richText()` | `unknown` | `TEXT` (JSON) | Opaque pass-through; no structure enforced until phase 12's editor defines one |
 | `number()` | `number` | `INTEGER` or `REAL` | `.int()` selects `INTEGER`, default `REAL`. `.min()`, `.max()` |
 | `boolean()` | `boolean` | `INTEGER` (0/1) | |
-| `select(options)` | union of option values (or plain `string`/`string[]` if `options` is a loader — see below) | `TEXT`, or `TEXT` (JSON) if `hasMany` | `options: SelectOptions \| SelectOptionsLoader` |
+| `select(options)` | union of option values (or plain `string`/`string[]` if `options` is a loader — see below) | `TEXT`, or `TEXT` (JSON) if `hasMany` | `options: SelectOptions \| SelectOptionsLoader`. For picking other rows in this DB, use `relation().hasMany()` instead — `select()` is for a hardcoded list or an external source |
 | `date()` / `timestamp()` | `Date` | `INTEGER` (unix ms) | `.default('now')` |
 | `json()` | `unknown` | `TEXT` (JSON) | Escape hatch — validated only as "parses" |
 
-### `select()` dynamic options
+### `select()` — static options vs. external options
 
-Static options are the common case:
+`select()` has exactly two forms. It is **not** the mechanism for referencing rows in another
+collection — that's `relation(slug).hasMany()`. `select()`'s job is a fixed set of choices, or a set
+sourced from somewhere outside oxygen's own database.
+
+**Static** — a hardcoded, unchanging list. This is the common case (a product type, a status enum —
+things that "never change," picked from a handful of options):
 
 ```ts
-select(['draft', 'published', 'archived'])
+select(['physical', 'digital', 'subscription'])
 ```
 
-But `options` can also be an async loader, for choices that come from a query rather than a fixed list:
+**External loader** — for choices sourced from a third-party service (a currency list, a Stripe product
+list, anything not in oxygen's own tables):
 
 ```ts
-select(async ({ db }) => {
-  const rows = await categoriesTable.findAll(db)
-  return rows.map((r) => ({ value: String(r.id), label: r.name }))
+select(async ({ search, limit }) => {
+  const results = await fetchFromSomeExternalApi({ query: search, limit })
+  return results.map((r) => ({ value: r.code, label: r.name }))
 })
 ```
 
 ```ts
 type SelectOption = string | { value: string; label: string }
 type SelectOptions = SelectOption[]
-type SelectOptionsLoader = (ctx: { db: unknown }) => Promise<SelectOptions>
+type SelectOptionsLoader = (ctx: { search?: string; limit?: number }) => Promise<SelectOptions>
 ```
 
-The `db` problem: `defineCollection` runs before `oxygen({ db, collections })` exists (collections are
-typically defined in their own module, imported into wherever `oxygen()` is called), so a loader can't
-close over `db` the normal way. Instead the runtime injects it as a context argument at call time,
-whenever the loader actually needs to run. Since `packages/fields` never imports `drizzle-orm` (see
-[Translation layer contract](#translation-layer-contract)), the descriptor types `db` as `unknown` —
-consumers writing a loader import their own db type and cast inside the loader body. A small ergonomics
-cost in exchange for keeping the field system genuinely decoupled from Drizzle, rather than the
-decoupling being nominal.
+No `db` in the loader context — deliberately. If the choices come from oxygen's own data, that's a
+`relation()`, not a `select()` loader; a `select()` loader exists specifically for sources outside
+oxygen's database, most often an external API call the consumer's own loader body makes with `fetch()`
+(reading whatever API key it needs from its own environment — the loader is just a function the
+consumer wrote, oxygen doesn't inject credentials).
 
-Two consequences worth being explicit about:
+Static and loader forms are validated differently on write, not just resolved differently for display:
 
-- **No caching in v1.** The loader is invoked fresh every time it's needed — once per validation on
-  write, and once per call to the options-listing endpoint below. Simplest correct behavior; revisit if
-  a real loader turns out to be expensive enough to need a TTL.
-- **Type inference degrades to `string`.** A static array lets TypeScript narrow to a literal union
-  (`'draft' | 'published' | 'archived'`); an async loader can't be evaluated at the type level, so the
-  inferred value type falls back to `string` (or `string[]` with `.hasMany()`).
+- **Static**: the submitted value must be a member of the array — enforced on every create/update, same
+  as any other built-in check. Cheap, local, no reason not to.
+- **Loader**: **not** re-validated against the live external list on write. Re-checking would put every
+  create/update behind a third-party service's uptime and latency just to save a document. The field
+  behaves like `text()` at write time — the loader exists purely to give a client something to call for
+  suggestions. `.validate()` is still available if a consumer wants to opt into a strict check
+  themselves.
 
-Because there's no admin UI yet to render a `<select>` from, resolved options are exposed as their own
-endpoint so any API consumer (including the typed client) can build one:
+This split also explains the type inference difference: a static array narrows to a literal union
+(`'physical' | 'digital' | 'subscription'`) precisely because it's an enforced enum; a loader can't be
+evaluated at the type level (and isn't enforced at the value level either), so it falls back to `string`
+(or `string[]` with `.hasMany()`).
+
+Neither form can be called directly from a browser — a loader because it may hold credentials the
+browser shouldn't see (or just hit CORS against the third-party service), and both because there's no
+admin UI yet to build the request. So oxygen generates the server-side route and any client (including
+a future shadcn `Combobox`, or the typed client) calls that instead of the source directly:
 
 ```
-GET /collections/:slug/fields/:field/options
-→ { "options": [{ "value": "draft", "label": "draft" }, ...] }
+GET /collections/:slug/fields/:field/options?search=&limit=
+→ { "options": [{ "value": "physical", "label": "physical" }, ...] }
 ```
 
-Always normalized to `{ value, label }` pairs in the response, whether `options` was a static array of
-plain strings, `{ value, label }` objects, or a loader — and subject to the same field-level permission
-allow-list as everything else (an unreadable field's options endpoint 404s, same as the field itself
-being absent from a read).
+`search`/`limit` are forwarded into the loader so it can push filtering down to the external call rather
+than fetching everything and filtering in memory; for a static array they're applied locally against the
+in-memory list instead. Always normalized to `{ value, label }` pairs regardless of which form produced
+them, and subject to the same field-level permission allow-list as everything else (an unreadable
+field's options endpoint 404s, same as the field itself being absent from a read). No caching in v1 —
+the loader runs fresh on every call; debouncing the request rate is the client's job (e.g. `cmdk`'s
+built-in debounce inside shadcn's `Command`), not oxygen's.
 
 ## Relational fields
 
@@ -262,10 +276,11 @@ This walk is the one place `defineCollection`/`defineSingle` and the CRUD genera
 Drizzle — everything above it works purely in terms of descriptors.
 
 The same descriptor walk drives write-time validation, independent of the column-generation walk: for
-each field, run built-ins (`required`/`unique`/`minLength`/`matches`/`min`/etc., including resolving a
-`select` loader if `options` isn't a static array) then the descriptor's `validators` array in order,
-short-circuiting per field on first failure and collecting one `{ field, message }` entry per failing
-field into the `{ errors: [...] }` response.
+each field, run built-ins (`required`/`unique`/`minLength`/`matches`/`min`/etc. — for `select`, only a
+*static* `options` array is checked for membership; a loader is never invoked on write, see
+[`select()` — static options vs. external options](#select--static-options-vs-external-options)) then
+the descriptor's `validators` array in order, short-circuiting per field on first failure and collecting
+one `{ field, message }` entry per failing field into the `{ errors: [...] }` response.
 
 ## Type inference
 

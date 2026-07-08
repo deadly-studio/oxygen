@@ -78,7 +78,7 @@ translation-layer contract, and how document types get inferred from a field map
 | `richText()` | `TEXT` | Stores an opaque JSON string. No structure enforced in v1 — the eventual admin UI editor owns the shape; the API treats it as pass-through JSON |
 | `number()` | `INTEGER` or `REAL` | `.int()` forces `INTEGER`; default is `REAL`. `.min()`, `.max()` |
 | `boolean()` | `INTEGER` (0/1) | |
-| `select(options)` | `TEXT` | `options: string[] \| { value, label }[] \| ((ctx) => Promise<...>)` — async loaders supported, see `docs/FIELDS.md`. `.hasMany()` switches storage to a JSON array column |
+| `select(options)` | `TEXT` | `options: string[] \| { value, label }[]` (validated enum), or an async loader for external, non-relational sources (not validated on write, see `docs/FIELDS.md`). For referencing other rows in this DB, use `relation().hasMany()` instead. `.hasMany()` switches storage to a JSON array column |
 | `date()` / `timestamp()` | `INTEGER` (unix ms, Drizzle `{ mode: 'timestamp' }`) | `.default('now')` |
 | `relation(slug)` | `INTEGER` (FK id) | `.hasMany()` switches to a JSON array-of-ids column — **v1 simplification**: hasMany relations aren't joinable in SQL, just fetched and hydrated app-side |
 | `upload(slug?)` | flattened group: `key`, `filename`, `mimeType`, `filesize` (all `TEXT`/`INTEGER`) | `.accept(mimeTypes[])`. `slug` names which storage adapter/bucket config to use if more than one is configured |
