@@ -4,7 +4,9 @@ A code-first, embeddable CMS for [Hono](https://hono.dev) apps — SQLite + [Dri
 
 Designed to drop into an existing Hono project rather than run as a standalone server.
 
-See [`docs/BUILD_PLAN.md`](./docs/BUILD_PLAN.md) for the architecture and build phases.
+See [`docs/BUILD_PLAN.md`](./docs/BUILD_PLAN.md) for the architecture and build phases, and
+[`docs/SPEC.md`](./docs/SPEC.md) for the concrete v1 API surface (routes, field types, request/response
+shapes).
 
 ## Status
 
