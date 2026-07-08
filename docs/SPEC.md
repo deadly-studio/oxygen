@@ -57,7 +57,28 @@ const SiteSettings = defineSingle({
 
 Same field system and hook lifecycle as collections, minus `auth` (singles are never auth-enabled).
 Backed by a table with exactly one row, seeded at migration time (`INSERT ... ON CONFLICT DO NOTHING`
-against a fixed `id = 1`), never created or deleted through the API.
+against a fixed `id` value — see [Primary keys](#primary-keys)), never created or deleted through the
+API.
+
+### Primary keys
+
+Every collection and single gets an implicit `id: TEXT PRIMARY KEY` — a ULID (26 characters,
+lexicographically sortable by creation time) generated application-side at insert time, since SQLite has
+no native UUID/ULID generator. Chosen over autoincrementing integers specifically because app-user-facing
+resources (orders, etc.) sit behind JWT auth, where a sequential id is enumerable the moment a permission
+scope has any gap — a ULID isn't guessable, while still sorting by creation order unlike a random UUIDv4.
+This applies uniformly; there's no per-collection opt-out to integer ids in v1. `relation(slug)` stores a
+`TEXT` FK accordingly (a `TEXT` JSON array of ids with `.hasMany()`), not an `INTEGER` — see
+[`docs/FIELDS.md`](./FIELDS.md). oxygen's own internal tables (`cms_roles`, `cms_permissions`,
+`cms_otp_codes`, etc.) follow the same convention, so there's one id shape across the whole system, not
+a framework/consumer split.
+
+`createdAt`/`updatedAt` are likewise implicit, framework-managed timestamp columns on every collection
+and single — not something a consumer declares. Together with `id`, these three names are reserved:
+declaring a field literally named `id`, `createdAt`, or `updatedAt` in a collection's `fields` map is
+rejected at `defineCollection()`/`defineSingle()` time with a clear error, rather than silently colliding
+with the implicit columns. Same rule covers a `group()`'s flattened output landing on one of these names
+or on another field's column — see [`docs/FIELDS.md`](./FIELDS.md#groupfields).
 
 ### Field catalog
 
@@ -80,7 +101,7 @@ translation-layer contract, and how document types get inferred from a field map
 | `boolean()` | `INTEGER` (0/1) | |
 | `select(options)` | `TEXT` | `options: string[] \| { value, label }[]` (validated enum), or an async loader for external, non-relational sources (not validated on write, see `docs/FIELDS.md`). For referencing other rows in this DB, use `relation().hasMany()` instead. `.hasMany()` switches storage to a JSON array column |
 | `date()` / `timestamp()` | `INTEGER` (unix ms, Drizzle `{ mode: 'timestamp' }`) | `.default('now')` |
-| `relation(slug)` | `INTEGER` (FK id) | `.hasMany()` switches to a JSON array-of-ids column — **v1 simplification**: hasMany relations aren't joinable in SQL, just fetched and hydrated app-side |
+| `relation(slug)` | `TEXT` (FK, ULID — see [Primary keys](#primary-keys)) | `.hasMany()` switches to a JSON array-of-ids column — **v1 simplification**: hasMany relations aren't joinable in SQL, just fetched and hydrated app-side |
 | `upload(slug?)` | flattened group: `key`, `filename`, `mimeType`, `filesize` (all `TEXT`/`INTEGER`) | `.accept(mimeTypes[])`. `slug` names which storage adapter/bucket config to use if more than one is configured |
 | `group(fields)` | flattened, prefixed columns (`heading` under `group('hero', ...)` → column `hero_heading`) | No wrapper table — just a namespacing convenience over flat columns |
 | `array(fields)` | `TEXT` (JSON) | **v1 simplification**: serialized JSON array of objects matching the nested field shape, not a child table. `.minRows()`, `.maxRows()` |
@@ -114,7 +135,7 @@ plan's example — routes below are relative to that mount point).
 | GET | `/collections/:slug/:id` | get one |
 | POST | `/collections/:slug` | create |
 | PATCH | `/collections/:slug/:id` | update |
-| DELETE | `/collections/:slug/:id` | delete |
+| DELETE | `/collections/:slug/:id` | delete — hard delete in v1, no soft-delete/trash/restore |
 | POST | `/collections/:slug/upload-url` | presigned upload URL, only present if the collection has an `upload()` field — see [Storage](#storage) |
 | GET | `/collections/:slug/fields/:field/options` | resolved `{ value, label }` options for a `select()` field, only present on `select()` fields — see `docs/FIELDS.md` |
 

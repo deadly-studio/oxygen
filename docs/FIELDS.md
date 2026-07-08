@@ -25,9 +25,10 @@ whole document. `fullDoc` is always the top-level payload, for conditions that c
 whose condition evaluates `false` is treated as absent: `.required()` is relaxed, and a submitted value
 is rejected rather than silently accepted.
 
-Each builder call mutates and returns the same builder instance (not copy-on-write) — builders are
-constructed once at collection-definition time and never touched again after being assigned into a
-`fields` map, so there's no aliasing hazard to design around.
+Each builder call mutates and returns the same builder instance (not copy-on-write) — cheap and simple
+for the common case of a field declared once, inline, and never touched again. It does reintroduce an
+aliasing hazard the moment a field is shared across more than one collection — see
+[Reusing fields across collections](#reusing-fields-across-collections) for why and how that's handled.
 
 ### Validation
 
@@ -76,6 +77,39 @@ accommodate, and the object map is strictly better for us: it gives free TypeScr
 document shape via a mapped type, and it's the more natural fit for a code-first config. Revisit if
 phase 12's admin UI turns out to need pure-layout fields — that's an additive change (a parallel array
 form), not a breaking one.
+
+### Reusing fields across collections
+
+A field builder is a mutable object — `.required()` et al. mutate and return `this` (see
+[Builder API](#builder-api)) — which is fine for a field declared once, inline, but breaks the moment
+the same field object is shared across collections and customized per site. An SEO group reused across
+`Posts`, `Pages`, and `Products`, say: if any one of those sites does `group({ ...seoFields, title:
+seoFields.title.required() })` to make `title` required just there, that `.required()` call mutates the
+one shared `text()` instance every other site also references — silently making it required everywhere,
+not just where it was meant to apply. Same failure mode for `.validate()`, since it appends to a
+`validators` array living on the shared descriptor.
+
+The sanctioned way to share fields is a factory, not a shared object:
+
+```ts
+export const seoFields = defineFields(() => ({
+  title: text(),
+  description: text(),
+  image: upload('media'),
+}))
+
+const Posts = defineCollection({ fields: { seo: group(seoFields()), /* ... */ } })
+const Pages = defineCollection({ fields: { seo: group(seoFields()), /* ... */ } })
+```
+
+Every call to `seoFields()` returns fresh builder instances, so each collection's copy is independent —
+`Pages` can chain `.required()` onto its own copy of `title` without touching `Posts`'s. `defineFields` is
+mostly a documented convention (a typed identity function) rather than doing real work itself; the actual
+safety net is that a builder is **sealed** the first time it's consumed by `defineCollection`/
+`defineSingle`/`group`/`array`/`blocks` — any further mutating call on an already-sealed instance throws,
+rather than silently corrupting whatever else shares it. A plain shared object without the factory
+wrapper still works fine as long as nothing customizes it per site; the seal only fires on an actual
+second *mutation*, not on read-only reuse.
 
 ## Leaf fields
 
@@ -174,7 +208,7 @@ built-in debounce inside shadcn's `Command`), not oxygen's.
 
 | Field | TS value type | Column(s) | Notes |
 |---|---|---|---|
-| `relation(slug)` | `number`, or `number[]` with `.hasMany()` | `INTEGER` FK, or `TEXT` (JSON array of ids) if `hasMany` | hasMany relations are hydrated app-side in v1, not SQL-joinable |
+| `relation(slug)` | `string` (ULID), or `string[]` with `.hasMany()` | `TEXT` FK, or `TEXT` (JSON array of ids) if `hasMany` | See [Primary keys](./SPEC.md#primary-keys) for why ids are ULIDs, not integers. hasMany relations are hydrated app-side in v1, not SQL-joinable |
 | `upload(slug?)` | `{ key, filename, mimeType, filesize }` | 4 flattened columns (same mechanism as `group()`) | `.accept(mimeTypes[])`. `slug` picks a storage adapter if more than one is configured |
 
 ## Organizational fields
@@ -190,6 +224,12 @@ group({ heading: text(), image: upload('media') })
 Flattened into prefixed columns on the parent table — `hero: group({ heading: text() })` produces
 column `hero_heading`, no wrapper table. Purely a naming/nesting convenience: indexes, uniqueness, and
 relations inside a group behave exactly as if the fields were declared at the top level.
+
+Flattening can collide — two groups producing the same generated column name, a group colliding with a
+top-level field, or landing on a reserved name (`id`, `createdAt`, `updatedAt`, see
+[Primary keys](./SPEC.md#primary-keys)). `defineCollection()`/`defineSingle()` computes the full set of
+generated column names up front and rejects any collision with a clear error naming both fields involved,
+rather than letting it surface later as an obscure Drizzle/SQLite error about a duplicate column.
 
 ### `array(fields, { minRows?, maxRows? })`
 
@@ -229,8 +269,10 @@ per-`blockType` validation. This is the mechanism for flexible page-builder-styl
 
 ## Translation layer contract
 
-Every builder produces a plain descriptor, not a Drizzle-aware object — the field/type system in
-`packages/fields` never imports `drizzle-orm`. The base shape:
+Every builder produces a plain descriptor, not a Drizzle-aware object — the builder/descriptor module
+never imports `drizzle-orm`. Only the separate translator submodule further down does; both live inside
+`packages/fields` per the build plan's package layout, so the package as a whole does depend on
+`drizzle-orm`, but nothing above the translator ever touches it. The base shape:
 
 ```ts
 interface FieldDescriptor<TKind extends string = string> {
@@ -313,7 +355,7 @@ type InferField<D extends FieldDescriptor> =
       ? (M extends true ? string[] : string)                                   // loader options can't be narrowed at the type level
       : (M extends true ? SelectValue<O[number]>[] : SelectValue<O[number]>)) : // static options narrow to a literal union of values
   D extends { kind: 'date' } ? Date :
-  D extends { kind: 'relation'; hasMany: infer M } ? (M extends true ? number[] : number) :
+  D extends { kind: 'relation'; hasMany: infer M } ? (M extends true ? string[] : string) : // string = ULID id
   D extends { kind: 'upload' } ? { key: string; filename: string; mimeType: string; filesize: number } :
   D extends { kind: 'group'; fields: infer F extends Record<string, FieldDescriptor> } ? InferFields<F> :
   D extends { kind: 'array'; fields: infer F extends Record<string, FieldDescriptor> } ? InferFields<F>[] :
