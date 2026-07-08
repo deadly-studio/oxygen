@@ -66,6 +66,9 @@ Every field builder supports a common chainable base: `.required()`, `.unique()`
 admin UI to hide/show yet) — a field whose condition evaluates false is treated as absent: not required
 even if `.required()` is set, and rejected if a value is submitted anyway.
 
+This is the quick-reference table — see [`docs/FIELDS.md`](./FIELDS.md) for the builder API, the
+translation-layer contract, and how document types get inferred from a field map.
+
 | Builder | SQLite column | Notes |
 |---|---|---|
 | `text()` | `TEXT` | `.minLength()`, `.maxLength()` |
@@ -79,6 +82,7 @@ even if `.required()` is set, and rejected if a value is submitted anyway.
 | `upload(slug?)` | flattened group: `key`, `filename`, `mimeType`, `filesize` (all `TEXT`/`INTEGER`) | `.accept(mimeTypes[])`. `slug` names which storage adapter/bucket config to use if more than one is configured |
 | `group(fields)` | flattened, prefixed columns (`heading` under `group('hero', ...)` → column `hero_heading`) | No wrapper table — just a namespacing convenience over flat columns |
 | `array(fields)` | `TEXT` (JSON) | **v1 simplification**: serialized JSON array of objects matching the nested field shape, not a child table. `.minRows()`, `.maxRows()` |
+| `blocks(blockTypes)` | `TEXT` (JSON) | Polymorphic array — each item tagged with a `blockType` discriminator and validated against that block's own field set. Same JSON-column storage as `array()`, just a union of item shapes instead of one |
 | `json()` | `TEXT` | Escape hatch — arbitrary JSON, validated only as "is valid JSON" |
 
 ### Hook lifecycle
