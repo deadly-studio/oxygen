@@ -1,2 +1,3 @@
 // Phase 4 — email adapter interface + Resend/Postmark/SES adapters — see docs/BUILD_PLAN.md
-export {}
+export * from './adapter.js'
+export * from './resend.js'
