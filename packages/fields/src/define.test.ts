@@ -45,9 +45,20 @@ describe('defineCollection', () => {
     expect(Posts.auth).toBe(false)
   })
 
-  it('defaults auth to false and accepts auth: true', () => {
-    const Customers = defineCollection({ slug: 'customers', fields: {}, auth: true })
+  it('defaults auth to false and accepts auth: true given a required+unique email field', () => {
+    const Customers = defineCollection({
+      slug: 'customers',
+      fields: { email: text().required().unique() },
+      auth: true,
+    })
     expect(Customers.auth).toBe(true)
+  })
+
+  it('rejects auth: true without a required+unique email field', () => {
+    expect(() => defineCollection({ slug: 'vendors-1', fields: {}, auth: true })).toThrow(/email/)
+    expect(() =>
+      defineCollection({ slug: 'vendors-2', fields: { email: text() }, auth: true }),
+    ).toThrow(/required.*unique|unique.*required/)
   })
 })
 

@@ -91,6 +91,23 @@ export interface CollectionInput<
   hooks?: Hooks<InferFields<SealFieldMap<F>>>
 }
 
+/**
+ * An `auth: true` collection's own table doubles as its identity store (see
+ * docs/SPEC.md#app-user-auth-otp--jwt) — OTP looks a person up, and signs
+ * them up, by this field. Required + unique so that lookup is always
+ * unambiguous, same guarantee `cms_users.email` gets for free as a fixed
+ * framework column.
+ */
+function assertAuthEmailField(fields: Record<string, FieldDescriptor>, ownerLabel: string): void {
+  const email = fields.email
+  if (!email || (email.kind !== 'text' && email.kind !== 'textarea')) {
+    throw new Error(`${ownerLabel}: an auth-enabled collection needs a top-level text() field named 'email'.`)
+  }
+  if (!email.required || !email.unique) {
+    throw new Error(`${ownerLabel}: its 'email' field must be both .required() and .unique() to identify app users.`)
+  }
+}
+
 /** See docs/SPEC.md#definecollection. */
 export function defineCollection<TSlug extends string, F extends FieldMap, TAuth extends boolean = false>(
   input: CollectionInput<TSlug, F, TAuth>,
@@ -99,6 +116,7 @@ export function defineCollection<TSlug extends string, F extends FieldMap, TAuth
   const fields = sealFields(input.fields)
   assertNoColumnCollisions(fields, `collection '${input.slug}'`)
   assertRelationOnDeleteValidity(fields, `collection '${input.slug}'`)
+  if (input.auth) assertAuthEmailField(fields, `collection '${input.slug}'`)
   return {
     type: 'collection',
     slug: input.slug,

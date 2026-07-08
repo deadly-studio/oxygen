@@ -59,5 +59,24 @@ export const cmsSessions = sqliteTable('cms_sessions', {
 /** Bypasses permission checks entirely once phase 7 lands — see docs/BUILD_PLAN.md#6-permissions. Granted to the bootstrap user. */
 export const SUPER_ADMIN_ROLE = 'super-admin'
 
+/**
+ * Backs the app-user refresh + rotate/revoke flow — see
+ * docs/SPEC.md#app-user-auth-otp--jwt. Unlike `cmsSessions`, `userId` can't
+ * carry a real FK: it points into whichever auth-enabled collection's own
+ * table `collectionSlug` names (`customers`, `vendors`, ...), and Drizzle FKs
+ * can't target a dynamically-chosen table. The row `id` doubles as the
+ * bearer refresh token itself, same pattern as `cmsSessions.id` doubling as
+ * the session cookie's value — a 26-character ULID is unguessable enough on
+ * its own, so no separate hash column.
+ */
+export const appRefreshTokens = sqliteTable('app_refresh_tokens', {
+  id: text('id').primaryKey(),
+  collectionSlug: text('collectionSlug').notNull(),
+  userId: text('userId').notNull(),
+  expiresAt: integer('expiresAt', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('createdAt', { mode: 'timestamp' }).notNull(),
+  revokedAt: integer('revokedAt', { mode: 'timestamp' }),
+})
+
 /** For pushing/generating physical schema alongside a consumer's own collections until docs/SPEC.md#schema--migrations' `oxygen generate` CLI exists. */
-export const cmsAuthTables = { cmsUsers, cmsRoles, cmsUserRoles, cmsOtpCodes, cmsSessions }
+export const cmsAuthTables = { cmsUsers, cmsRoles, cmsUserRoles, cmsOtpCodes, cmsSessions, appRefreshTokens }

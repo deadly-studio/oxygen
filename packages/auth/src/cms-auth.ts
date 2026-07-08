@@ -1,9 +1,10 @@
 import { eq, sql } from 'drizzle-orm'
-import type { Context, MiddlewareHandler } from 'hono'
+import type { MiddlewareHandler } from 'hono'
 import { Hono } from 'hono'
 import { errorResponse, ulid } from '@deadly-studio/oxygen'
 import type { CmsAuthStrategy, OxygenDatabase } from '@deadly-studio/oxygen'
 import type { EmailAdapter } from '@deadly-studio/oxygen-email'
+import { isNonEmptyString, isValidEmail, readJsonBody } from './http.js'
 import { issueOtpCode, verifyOtpCode } from './otp.js'
 import type { OtpVerifyResult } from './otp.js'
 import { createSession, destroySession, resolveSessionUser } from './session.js'
@@ -27,25 +28,6 @@ export interface OtpAuthOptions {
    * bootstrap proceeds on the empty-table check alone.
    */
   bootstrapToken?: string
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0
-}
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-function isValidEmail(value: unknown): value is string {
-  return typeof value === 'string' && EMAIL_PATTERN.test(value)
-}
-
-async function readJsonBody(c: Context): Promise<Record<string, unknown> | null> {
-  try {
-    const body = await c.req.json()
-    return typeof body === 'object' && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : null
-  } catch {
-    return null
-  }
 }
 
 async function cmsUserCount(db: OxygenDatabase): Promise<number> {

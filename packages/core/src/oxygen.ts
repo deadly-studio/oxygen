@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { CollectionConfig, SingleConfig } from '@deadly-studio/oxygen-fields'
-import type { CmsAuthStrategy } from './auth.js'
+import type { AppAuthStrategy, CmsAuthStrategy } from './auth.js'
 import { seedSingleRow } from './crud.js'
 import type { OxygenDatabase } from './database.js'
 import { createCollectionRouter } from './routes/collections.js'
@@ -12,8 +12,7 @@ export interface OxygenConfig {
   db: OxygenDatabase
   collections?: CollectionConfig[]
   singles?: SingleConfig[]
-  /** `app` (JWT, per auth-enabled collection) isn't built yet — see docs/BUILD_PLAN.md#5-two-auth-domains. */
-  auth?: { cms?: CmsAuthStrategy }
+  auth?: { cms?: CmsAuthStrategy; app?: AppAuthStrategy }
 }
 
 /**
@@ -38,6 +37,18 @@ export function oxygen(config: OxygenConfig): Hono {
     app.use('/collections/*', cmsAuth.middleware(db))
     app.use('/singles/*', cmsAuth.middleware(db))
     app.route('/auth', cmsAuth.createRouter(db))
+  }
+
+  const appAuth = config.auth?.app
+  for (const collectionConfig of collections) {
+    if (!collectionConfig.auth) continue
+    if (!appAuth) {
+      throw new Error(
+        `oxygen: collection '${collectionConfig.slug}' is auth-enabled (auth: true) but no auth.app strategy was configured.`,
+      )
+    }
+    // Own login namespace per collection — see docs/SPEC.md#app-user-auth-otp--jwt.
+    app.route(`/app/${collectionConfig.slug}/auth`, appAuth.createRouter(db, schema.collections.get(collectionConfig.slug)!))
   }
 
   const collectionsRouter = new Hono()
