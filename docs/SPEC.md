@@ -101,7 +101,7 @@ translation-layer contract, and how document types get inferred from a field map
 | `boolean()` | `INTEGER` (0/1) | |
 | `select(options)` | `TEXT` | `options: string[] \| { value, label }[]` (validated enum), or an async loader for external, non-relational sources (not validated on write, see `docs/FIELDS.md`). For referencing other rows in this DB, use `relation().hasMany()` instead. `.hasMany()` switches storage to a JSON array column |
 | `date()` / `timestamp()` | `INTEGER` (unix ms, Drizzle `{ mode: 'timestamp' }`) | `.default('now')` |
-| `relation(slug)` | `TEXT` (FK, ULID — see [Primary keys](#primary-keys)) | `.hasMany()` switches to a JSON array-of-ids column — **v1 simplification**: hasMany relations aren't joinable in SQL, just fetched and hydrated app-side |
+| `relation(slug)` | `TEXT` (FK, ULID — see [Primary keys](#primary-keys)) | Real FK constraint, `onDelete: 'restrict'` by default (`.onDelete('setNull' \| 'cascade')` to override, see `docs/FIELDS.md`). `.hasMany()` switches to a JSON array-of-ids column with no FK — **v1 simplification**: hasMany relations aren't joinable in SQL, just fetched and hydrated app-side |
 | `upload(slug?)` | flattened group: `key`, `filename`, `mimeType`, `filesize` (all `TEXT`/`INTEGER`) | `.accept(mimeTypes[])`. `slug` names which storage adapter/bucket config to use if more than one is configured |
 | `group(fields)` | flattened, prefixed columns (`heading` under `group('hero', ...)` → column `hero_heading`) | No wrapper table — just a namespacing convenience over flat columns |
 | `array(fields)` | `TEXT` (JSON) | **v1 simplification**: serialized JSON array of objects matching the nested field shape, not a child table. `.minRows()`, `.maxRows()` |
@@ -385,7 +385,7 @@ CMS user management (list, invite) sits alongside this rather than inside it:
 | Method | Path | Body | Notes |
 |---|---|---|---|
 | GET | `/users` | — | List CMS users, each with their assigned roles |
-| POST | `/users/invite` | `{ email, roleIds? }` | Creates a `cms_users` row (no password/OTP yet — they authenticate themselves via the normal `/auth/otp` flow once invited) and optionally assigns initial roles |
+| POST | `/users/invite` | `{ email, roleIds? }` | Creates a `cms_users` row (no password/OTP yet — they authenticate themselves via the normal `/auth/otp` flow once invited) and optionally assigns initial roles, then sends a "you've been invited" notification through the configured email adapter — creating the row silently, with no signal to the invited person that access now exists, isn't enough |
 | DELETE | `/users/:id` | — | Same super-admin-lockout guard as revoking a role membership |
 
 ## Webhooks

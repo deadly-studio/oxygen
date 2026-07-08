@@ -30,6 +30,13 @@ for the common case of a field declared once, inline, and never touched again. I
 aliasing hazard the moment a field is shared across more than one collection — see
 [Reusing fields across collections](#reusing-fields-across-collections) for why and how that's handled.
 
+`.index()`/`.unique()` aren't on every kind's builder, despite being listed on the shared base above —
+they're absent wherever storage is a serialized JSON blob rather than a real column value:
+`array()`, `blocks()`, `json()`, and `relation()`/`select()` once `.hasMany()` is applied. Indexing or
+unique-constraining a blob only ever checks the whole serialized value for equality, never its contents,
+which is essentially never what's intended — so those kinds simply don't expose the methods, the same
+way `.minLength()` only exists on `text()`/`textarea()`.
+
 ### Validation
 
 Type-specific constraints stay on the builders they apply to, rather than generalizing `.min()`/`.max()`
@@ -211,6 +218,27 @@ built-in debounce inside shadcn's `Command`), not oxygen's.
 | `relation(slug)` | `string` (ULID), or `string[]` with `.hasMany()` | `TEXT` FK, or `TEXT` (JSON array of ids) if `hasMany` | See [Primary keys](./SPEC.md#primary-keys) for why ids are ULIDs, not integers. hasMany relations are hydrated app-side in v1, not SQL-joinable |
 | `upload(slug?)` | `{ key, filename, mimeType, filesize }` | 4 flattened columns (same mechanism as `group()`) | `.accept(mimeTypes[])`. `slug` picks a storage adapter if more than one is configured |
 
+### `relation()` referential integrity
+
+A singular (non-`hasMany`) `relation(slug)` gets a real `TEXT` FK constraint against the target
+collection's `id`, not just a column that happens to hold another table's id unenforced. Default
+`onDelete` behavior is **`restrict`**: deleting a row still referenced by a `relation()` elsewhere fails
+with a `409` rather than silently orphaning or cascading away data — consistent with the deny-by-default,
+never-lose-data posture the permission system and migration workflow already take. Override per field
+when restrict isn't what's wanted:
+
+```ts
+author: relation('authors').onDelete('setNull')   // only valid if the relation isn't .required()
+```
+
+`.onDelete('cascade')` is also available but deliberately not the default — a cascading delete across
+collections is rarely what a CMS author means to happen, and if the relationship really is
+parent/child-owned (a section belongs to exactly one page, say), `group()`/`array()`/`blocks()` model
+that more directly than a cascading `relation()` would anyway.
+
+`hasMany` relations get no FK constraint (they're an unenforced JSON array of ids, per the v1
+simplification above) — `onDelete` only applies to the singular form.
+
 ## Organizational fields
 
 The fields that nest other fields instead of storing a scalar.
@@ -303,6 +331,7 @@ interface SelectDescriptor extends FieldDescriptor<'select'> {
 interface RelationDescriptor extends FieldDescriptor<'relation'> {
   to: string
   hasMany: boolean
+  onDelete: 'restrict' | 'setNull' | 'cascade'   // default 'restrict'; ignored when hasMany (no FK)
 }
 
 interface GroupDescriptor extends FieldDescriptor<'group'> {
