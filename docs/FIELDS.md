@@ -97,11 +97,23 @@ collection — that's `relation(slug).hasMany()`. `select()`'s job is a fixed se
 sourced from somewhere outside oxygen's own database.
 
 **Static** — a hardcoded, unchanging list. This is the common case (a product type, a status enum —
-things that "never change," picked from a handful of options):
+things that "never change," picked from a handful of options). Each option is a `{ value, label }`
+pair — `value` is what gets persisted, `label` is purely presentational (what a client displays, never
+what's stored):
 
 ```ts
-select(['physical', 'digital', 'subscription'])
+select([
+  { value: 'physical', label: 'Physical product' },
+  { value: 'digital', label: 'Digital download' },
+  { value: 'subscription', label: 'Subscription' },
+])
 ```
+
+A plain string is shorthand for `{ value: s, label: s }`, for the common case where there's no separate
+display text — `select(['draft', 'published', 'archived'])` behaves identically to spelling out
+`{ value: 'draft', label: 'draft' }` etc. Whichever form is used, **the document field always stores
+`value`** — `label` never reaches the database column, it only ever appears in the options-listing
+endpoint's response for a client to render.
 
 **External loader** — for choices sourced from a third-party service (a currency list, a Stripe product
 list, anything not in oxygen's own tables):
@@ -127,8 +139,8 @@ consumer wrote, oxygen doesn't inject credentials).
 
 Static and loader forms are validated differently on write, not just resolved differently for display:
 
-- **Static**: the submitted value must be a member of the array — enforced on every create/update, same
-  as any other built-in check. Cheap, local, no reason not to.
+- **Static**: the submitted value must match one of the options' `value`s (never a `label`) — enforced
+  on every create/update, same as any other built-in check. Cheap, local, no reason not to.
 - **Loader**: **not** re-validated against the live external list on write. Re-checking would put every
   create/update behind a third-party service's uptime and latency just to save a document. The field
   behaves like `text()` at write time — the loader exists purely to give a client something to call for
@@ -288,14 +300,18 @@ Document types are inferred from the field map, not hand-declared, via a mapped 
 `FieldDescriptor`s — sketch:
 
 ```ts
+// Pulls the persisted `value` literal out of an option, whether it's a bare
+// string or a { value, label } pair — label never contributes to the type.
+type SelectValue<T extends SelectOption> = T extends string ? T : T extends { value: infer V } ? V : never
+
 type InferField<D extends FieldDescriptor> =
   D extends { kind: 'text' | 'textarea' } ? string :
   D extends { kind: 'number' } ? number :
   D extends { kind: 'boolean' } ? boolean :
   D extends { kind: 'select'; options: infer O; hasMany: infer M } ?
     (O extends SelectOptionsLoader
-      ? (M extends true ? string[] : string)              // loader options can't be narrowed at the type level
-      : (M extends true ? O[number][] : O[number])) :      // static options narrow to a literal union
+      ? (M extends true ? string[] : string)                                   // loader options can't be narrowed at the type level
+      : (M extends true ? SelectValue<O[number]>[] : SelectValue<O[number]>)) : // static options narrow to a literal union of values
   D extends { kind: 'date' } ? Date :
   D extends { kind: 'relation'; hasMany: infer M } ? (M extends true ? number[] : number) :
   D extends { kind: 'upload' } ? { key: string; filename: string; mimeType: string; filesize: number } :
