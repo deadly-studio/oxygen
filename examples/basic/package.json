@@ -5,10 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "db:generate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push"
+    "db:push": "tsx src/db/push.ts"
   },
   "dependencies": {
+    "@deadly-studio/oxygen": "workspace:*",
+    "@deadly-studio/oxygen-auth": "workspace:*",
+    "@deadly-studio/oxygen-email": "workspace:*",
+    "@deadly-studio/oxygen-fields": "workspace:*",
+    "@deadly-studio/oxygen-permissions": "workspace:*",
+    "@deadly-studio/oxygen-storage": "workspace:*",
     "@hono/node-server": "^2.0.8",
     "@libsql/client": "^0.17.4",
     "drizzle-orm": "^0.45.2",

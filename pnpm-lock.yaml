@@ -23,6 +23,24 @@ importers:
 
   examples/basic:
     dependencies:
+      '@deadly-studio/oxygen':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@deadly-studio/oxygen-auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@deadly-studio/oxygen-email':
+        specifier: workspace:*
+        version: link:../../packages/email
+      '@deadly-studio/oxygen-fields':
+        specifier: workspace:*
+        version: link:../../packages/fields
+      '@deadly-studio/oxygen-permissions':
+        specifier: workspace:*
+        version: link:../../packages/permissions
+      '@deadly-studio/oxygen-storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       '@hono/node-server':
         specifier: ^2.0.8
         version: 2.0.8(hono@4.12.28)
