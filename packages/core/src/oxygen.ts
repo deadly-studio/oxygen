@@ -8,6 +8,8 @@ import { createCollectionRouter } from './routes/collections.js'
 import { createSingleRouter } from './routes/singles.js'
 import { resolveSchema } from './schema.js'
 import type { ResolvedResource } from './schema.js'
+import { normalizeStorage } from './storage.js'
+import type { StorageAdapter } from './storage.js'
 import { wireResourceWebhooks } from './webhook.js'
 
 export interface OxygenConfig {
@@ -17,6 +19,8 @@ export interface OxygenConfig {
   auth?: { cms?: CmsAuthStrategy; app?: AppAuthStrategy }
   /** Applies uniformly to both auth domains — see docs/SPEC.md#permissions. Unconfigured means unrestricted access, same as every phase before this one. */
   permissions?: PermissionsStrategy
+  /** A single adapter, or a slug-keyed map for multiple — see docs/SPEC.md#storage and `upload(slug?)` in docs/FIELDS.md. */
+  storage?: StorageAdapter | Record<string, StorageAdapter>
 }
 
 /**
@@ -68,10 +72,11 @@ export function oxygen(config: OxygenConfig): Hono {
   }
 
   const { permissions } = config
+  const storageAdapters = normalizeStorage(config.storage)
 
   const collectionsRouter = new Hono()
   for (const resource of schema.collections.values()) {
-    collectionsRouter.route(`/${resource.slug}`, createCollectionRouter(resource, db, permissions))
+    collectionsRouter.route(`/${resource.slug}`, createCollectionRouter(resource, db, permissions, storageAdapters))
   }
   app.route('/collections', collectionsRouter)
 
@@ -80,6 +85,14 @@ export function oxygen(config: OxygenConfig): Hono {
     singlesRouter.route(`/${resource.slug}`, createSingleRouter(resource, db, ensureSingleSeeded(db, resource), permissions))
   }
   app.route('/singles', singlesRouter)
+
+  // Only adapters that bring their own routes (e.g. localStorage()'s
+  // disk-backed endpoint) register anything here — see docs/SPEC.md#storage.
+  const storageRouter = new Hono()
+  for (const [slug, adapter] of Object.entries(storageAdapters)) {
+    if (adapter.mount) storageRouter.route(`/${slug}`, adapter.mount())
+  }
+  app.route('/storage', storageRouter)
 
   return app
 }
