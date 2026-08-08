@@ -25,3 +25,6 @@ export type {
   WebhookPayload,
 } from './webhook.js'
 export { webhookDeliveries, webhookTables } from './webhook-tables.js'
+// Phase 10 — storage — see docs/SPEC.md#storage. Reused by adapter implementations (e.g. @deadly-studio/oxygen-storage) so this package never depends on that one, same pattern as CmsAuthStrategy/PermissionsStrategy.
+export { DEFAULT_STORAGE_SLUG, normalizeStorage } from './storage.js'
+export type { StorageAdapter, StorageUploadUrl } from './storage.js'

@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import type { SelectDescriptor, SelectOption } from '@deadly-studio/oxygen-fields'
+import type { SelectDescriptor, SelectOption, UploadDescriptor } from '@deadly-studio/oxygen-fields'
 import {
   createDocument,
   deleteDocument,
@@ -14,6 +14,9 @@ import { errorResponse, isForeignKeyConstraintError, isUniqueConstraintError, no
 import { combineWhere, pickAllowedFields, rejectDisallowedFields, requireGrant } from '../permissions.js'
 import type { PermissionsStrategy } from '../permissions.js'
 import type { ResolvedResource } from '../schema.js'
+import { DEFAULT_STORAGE_SLUG } from '../storage.js'
+import type { StorageAdapter } from '../storage.js'
+import { ulid } from '../ulid.js'
 import { buildWhere, parsePagination, parseSort, parseWhereParam, QueryError } from '../where.js'
 
 async function readJsonBody(c: Context): Promise<Record<string, unknown> | null> {
@@ -29,9 +32,69 @@ function normalizeOption(option: SelectOption): { value: string; label: string }
   return typeof option === 'string' ? { value: option, label: option } : option
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
+}
+
+/** Strips characters that don't belong in a storage key/path segment — keeps the upload-url response's `key` predictable and traversal-safe. */
+function sanitizeFilename(filename: string): string {
+  return filename.replace(/[^a-zA-Z0-9._-]+/g, '-')
+}
+
 /** Generated CRUD routes for one collection — see docs/SPEC.md#generated-rest-api. Paths are relative to the `/collections/:slug` mount point. */
-export function createCollectionRouter(resource: ResolvedResource, db: OxygenDatabase, permissions?: PermissionsStrategy): Hono {
+export function createCollectionRouter(
+  resource: ResolvedResource,
+  db: OxygenDatabase,
+  permissions?: PermissionsStrategy,
+  storageAdapters: Record<string, StorageAdapter> = {},
+): Hono {
   const app = new Hono()
+
+  const uploadFields = Object.entries(resource.fields).filter(
+    (entry): entry is [string, UploadDescriptor] => entry[1].kind === 'upload',
+  )
+
+  // Only present when the collection has an upload() field — see
+  // docs/SPEC.md#collections. Registered ahead of `/:id` for the same reason
+  // as `/fields/:field/options` above.
+  if (uploadFields.length > 0) {
+    app.post('/upload-url', async (c) => {
+      const grant = await requireGrant(db, c, permissions, resource, 'create')
+      if (grant instanceof Response) return grant
+
+      const body = await readJsonBody(c)
+      if (!body || !isNonEmptyString(body.filename) || !isNonEmptyString(body.contentType)) {
+        return errorResponse(c, 400, [{ message: 'filename and contentType are required.' }])
+      }
+
+      let fieldKey = isNonEmptyString(body.field) ? body.field : undefined
+      if (!fieldKey) {
+        if (uploadFields.length > 1) {
+          return errorResponse(c, 400, [
+            { field: 'field', message: `'${resource.slug}' has multiple upload() fields — specify which one via 'field'.` },
+          ])
+        }
+        fieldKey = uploadFields[0]![0]
+      }
+      const match = uploadFields.find(([key]) => key === fieldKey)
+      if (!match) return notFound(c, `'${fieldKey}' is not an upload() field on '${resource.slug}'.`)
+      const [, descriptor] = match
+
+      if (descriptor.accept && descriptor.accept.length > 0 && !descriptor.accept.includes(body.contentType)) {
+        return errorResponse(c, 400, [{ field: 'contentType', message: `contentType must be one of: ${descriptor.accept.join(', ')}.` }])
+      }
+
+      const adapterSlug = descriptor.adapter ?? DEFAULT_STORAGE_SLUG
+      const adapter = storageAdapters[adapterSlug]
+      if (!adapter) {
+        return errorResponse(c, 500, [{ message: `No storage adapter configured for '${adapterSlug}'.` }])
+      }
+
+      const key = `${resource.slug}/${fieldKey}/${ulid()}-${sanitizeFilename(body.filename)}`
+      const { url, fields } = await adapter.getUploadUrl(key, body.contentType)
+      return c.json({ uploadUrl: url, key, fields })
+    })
+  }
 
   // Registered ahead of `/:id` — `fields` is a literal path segment so it
   // can't collide with an id lookup, but keeping the more specific route
