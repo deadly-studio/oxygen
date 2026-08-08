@@ -15,3 +15,13 @@ export type { ResolvedResource } from './schema.js'
 export type { PermissionAction, PermissionGrant, PermissionsStrategy } from './permissions.js'
 // `cms_permissions.scope` is the exact same filter grammar as `?where=` — see docs/SPEC.md#permissions.
 export { buildWhere } from './where.js'
+// Phase 9 — webhooks — see docs/SPEC.md#webhooks.
+export { processWebhookDeliveries, webhook, WEBHOOK_BACKOFF_MS } from './webhook.js'
+export type {
+  ProcessWebhookDeliveriesOptions,
+  ProcessWebhookDeliveriesResult,
+  WebhookEvent,
+  WebhookOptions,
+  WebhookPayload,
+} from './webhook.js'
+export { webhookDeliveries, webhookTables } from './webhook-tables.js'
