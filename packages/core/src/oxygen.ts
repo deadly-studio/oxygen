@@ -8,6 +8,7 @@ import { createCollectionRouter } from './routes/collections.js'
 import { createSingleRouter } from './routes/singles.js'
 import { resolveSchema } from './schema.js'
 import type { ResolvedResource } from './schema.js'
+import { wireResourceWebhooks } from './webhook.js'
 
 export interface OxygenConfig {
   db: OxygenDatabase
@@ -31,6 +32,11 @@ export function oxygen(config: OxygenConfig): Hono {
   const { db } = config
 
   const schema = resolveSchema(collections, singles)
+  // Binds any webhook() hook (registered at defineCollection/defineSingle
+  // time, before db existed) to this db + resource — see docs/SPEC.md#webhooks.
+  for (const resource of [...schema.collections.values(), ...schema.singles.values()]) {
+    wireResourceWebhooks(resource.hooks, db, resource.slug)
+  }
 
   const app = new Hono()
 
