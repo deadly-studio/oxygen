@@ -13,7 +13,8 @@ runnable app.
 ## Status
 
 Pre-alpha, nothing published yet, but functional: field system, CRUD generator, both auth domains,
-permissions enforcement, webhooks, S3/local storage, and a typed client are built and tested (10 of the 12
-phases in `docs/BUILD_PLAN.md`). Notable gaps: no REST admin surface for roles/permissions yet, no
-`oxygen generate` migration CLI yet (see `docs/GUIDE.md`'s "Known gaps"), and no admin UI (phase 12,
-stretch).
+permissions enforcement, webhooks, S3/local storage, a typed client, and an MVP React admin UI are built
+and tested — all 12 phases in `docs/BUILD_PLAN.md` have at least a working version now. Notable gaps: no
+REST admin surface for roles/permissions yet, no `oxygen generate` migration CLI yet, and the admin UI is
+an MVP rather than full parity with its `docs/BUILD_PLAN.md` design — see `docs/GUIDE.md`'s "Known gaps"
+for specifics.
