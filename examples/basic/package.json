@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@deadly-studio/oxygen": "workspace:*",
+    "@deadly-studio/oxygen-admin": "workspace:*",
     "@deadly-studio/oxygen-auth": "workspace:*",
     "@deadly-studio/oxygen-email": "workspace:*",
     "@deadly-studio/oxygen-fields": "workspace:*",

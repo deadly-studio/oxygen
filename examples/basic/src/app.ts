@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { oxygen } from '@deadly-studio/oxygen'
+import { adminUI } from '@deadly-studio/oxygen-admin'
 import { appOtpAuth, getAppUser, otpAuth, resolveSessionUser } from '@deadly-studio/oxygen-auth'
 import { localStorage } from '@deadly-studio/oxygen-storage'
 import { Customers, Posts, SiteSettings } from './collections.js'
@@ -46,3 +47,8 @@ custom.get('/whoami', async (c) => {
 export const app = new Hono()
 app.route('/cms', cms)
 app.route('/api', custom)
+// The prebuilt admin UI — see docs/GUIDE.md and
+// docs/BUILD_PLAN.md#12-stretch-admin-ui. Its own bundle assumes it's
+// mounted at `.../admin` relative to oxygen()'s mount point, matching the
+// path below.
+app.route('/cms/admin', adminUI())

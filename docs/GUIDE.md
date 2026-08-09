@@ -338,9 +338,44 @@ const auth = otpAuth({ /* ... */ })
 custom.use('/admin/*', auth.middleware(db))
 ```
 
-## Known gaps (as of phase 11)
+## Admin UI
+
+A prebuilt React admin panel, mounted the same way as any other sub-app:
+
+```ts
+import { adminUI } from '@deadly-studio/oxygen-admin'
+
+const app = new Hono()
+app.route('/cms', cms)
+app.route('/cms/admin', adminUI()) // must end in /admin — see below
+```
+
+It discovers your collections/singles at runtime from a new `GET /schema` route `oxygen()` exposes
+specifically for this (gated behind CMS auth whenever `auth.cms` is configured), so there's nothing to
+regenerate when your collections change — rebuilding the admin package itself isn't required. Sign in with
+the same CMS OTP flow as `docs/SPEC.md#cms-user-auth-otp--cookie-sessions`.
+
+The bundle assumes it's mounted at a path ending in `/admin`, relative to `oxygen()`'s own mount point —
+it derives its API base from `window.location` on that assumption (`/cms/admin` → API base `/cms`). Mount
+somewhere else and pass `adminUI({ apiBasePath: '/wherever/oxygen/lives' })` to override it.
+
+This is genuinely useful for basic content management, but it's an MVP, not full parity with the
+`docs/BUILD_PLAN.md#10-admin-ui` design (TanStack Table/Query, react-hook-form, shadcn/ui, conditional
+field visibility, a filter builder) — known simplifications, in roughly the order you'll hit them:
+
+- `relation()` fields are a raw id text input — no picker/search UI.
+- `array()`/`blocks()` fields are a raw JSON textarea — no repeater UI.
+- `richText()`/`json()` fields are plain textareas — no rich-text editor, no JSON schema validation.
+- `upload()` fields show whatever metadata is already on the doc — no upload UI wired to the presigned-URL
+  flow yet (see the Storage section above for the flow itself).
+- The list view always shows the first 5 top-level fields — no column picker.
+- Field-level permission allow-lists aren't reflected specially in the UI (a write the API rejects still
+  surfaces as a normal field error, though — nothing is silently lost).
+
+## Known gaps (as of phase 12)
 
 - No REST admin surface for roles/permissions yet ([`docs/SPEC.md`](./SPEC.md#managing-roles--permissions))
   — manage `cms_roles`/`cms_user_roles`/`cms_permissions` directly, per the Permissions section above.
 - No `oxygen generate` CLI yet — call `buildSchema()` yourself, per the Migrations section above.
-- No admin UI (phase 12, stretch, per [`docs/BUILD_PLAN.md`](./BUILD_PLAN.md#phased-build-order)).
+- The admin UI (previous section) is an MVP, not full parity with `docs/BUILD_PLAN.md`'s design — see its
+  simplifications list above.

@@ -2,7 +2,7 @@
 
 A real, runnable oxygen app — the companion to [`docs/GUIDE.md`](../../docs/GUIDE.md). Two collections
 (`posts`, and `customers` with `auth: true`), a single (`site-settings`), CMS OTP+cookie auth, app-user
-OTP+JWT auth, local-disk file storage, and one custom route showing the auth context helpers.
+OTP+JWT auth, local-disk file storage, the admin UI, and one custom route showing the auth context helpers.
 
 Backed by Drizzle's SQLite dialect over `@libsql/client`, defaulting to a local file (`./local.db`) with
 zero setup, and switching to Turso unmodified once `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` are set —
@@ -33,6 +33,11 @@ curl -b cookies.txt http://localhost:3000/cms/collections/posts
 
 curl -b cookies.txt http://localhost:3000/api/whoami
 ```
+
+Or open [`http://localhost:3000/cms/admin`](http://localhost:3000/cms/admin) in a browser for the same
+flow through the admin UI — see [`docs/GUIDE.md`](../../docs/GUIDE.md#admin-ui). Note that
+`@deadly-studio/oxygen-admin` needs its own build (`pnpm --filter @deadly-studio/oxygen-admin build`)
+before this route serves anything.
 
 App-user (customer) self-service signup works the same way against `/cms/app/customers/auth/otp/{request,verify}`,
 returning a bearer token instead of a cookie — see [`docs/GUIDE.md`](../../docs/GUIDE.md#app-user-auth-otp--jwt).

@@ -28,3 +28,5 @@ export { webhookDeliveries, webhookTables } from './webhook-tables.js'
 // Phase 10 — storage — see docs/SPEC.md#storage. Reused by adapter implementations (e.g. @deadly-studio/oxygen-storage) so this package never depends on that one, same pattern as CmsAuthStrategy/PermissionsStrategy.
 export { DEFAULT_STORAGE_SLUG, normalizeStorage } from './storage.js'
 export type { StorageAdapter, StorageUploadUrl } from './storage.js'
+// Phase 12 — the admin UI's schema-discovery endpoint (GET /schema) — see docs/BUILD_PLAN.md#12-stretch-admin-ui.
+export type { SchemaResponse, SerializedField, SerializedResource } from './schema-introspection.js'

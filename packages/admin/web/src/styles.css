@@ -1,0 +1,242 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #2563eb;
+  --danger: #dc2626;
+  --sidebar-bg: #f9fafb;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181d;
+    --fg: #e5e7eb;
+    --muted: #9ca3af;
+    --border: #2a2d34;
+    --sidebar-bg: #1c1f26;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-title {
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.sidebar-section {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 1rem 0 0.25rem;
+}
+
+.sidebar ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar li a {
+  display: block;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.375rem;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.sidebar li a:hover,
+.sidebar li a.active {
+  background: var(--border);
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.app-main {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  max-width: 960px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.row-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+
+.empty-state {
+  color: var(--muted);
+}
+
+.record-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 560px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.field-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.field-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.field-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+.field-error {
+  font-size: 0.8rem;
+  color: var(--danger);
+  margin: 0;
+}
+
+.field-group {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+button {
+  font: inherit;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--border);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+form button[type='submit'] {
+  align-self: flex-start;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-card {
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.login-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.loading-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  color: var(--muted);
+}

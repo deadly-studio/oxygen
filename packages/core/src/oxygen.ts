@@ -8,6 +8,7 @@ import { createCollectionRouter } from './routes/collections.js'
 import { createSingleRouter } from './routes/singles.js'
 import { resolveSchema } from './schema.js'
 import type { ResolvedResource } from './schema.js'
+import { buildSchemaResponse } from './schema-introspection.js'
 import { normalizeStorage } from './storage.js'
 import type { StorageAdapter } from './storage.js'
 import { wireResourceWebhooks } from './webhook.js'
@@ -57,7 +58,16 @@ export function oxygen(config: OxygenConfig): Hono {
       app.use('/collections/*', cmsAuth.middleware(db))
       app.use('/singles/*', cmsAuth.middleware(db))
     }
+    // /schema is metadata for the admin UI (docs/BUILD_PLAN.md#12-stretch-admin-ui),
+    // not a resource `?where=`/field-level access can scope — any signed-in
+    // CMS session can read it, the same way Payload's admin UI reveals field
+    // shape to any authenticated staff member regardless of granular grants.
+    // Unaffected by a configured PermissionsStrategy, unlike /collections and
+    // /singles above.
+    app.use('/schema', cmsAuth.middleware(db))
   }
+
+  app.get('/schema', (c) => c.json(buildSchemaResponse(schema.collections.values(), schema.singles.values())))
 
   const appAuth = config.auth?.app
   for (const collectionConfig of collections) {

@@ -6,6 +6,8 @@ import type { CollectionConfig, FieldDescriptor, Hooks, SingleConfig } from '@de
 export interface ResolvedResource {
   slug: string
   type: 'collection' | 'single'
+  /** Always `false` for a single — see docs/SPEC.md#definesingle. */
+  auth: boolean
   fields: Record<string, FieldDescriptor>
   hooks?: Hooks<Record<string, unknown>>
   table: AnySQLiteTable
@@ -56,6 +58,7 @@ function resolve(config: CollectionConfig | SingleConfig, table: AnySQLiteTable)
   return {
     slug: config.slug,
     type: config.type,
+    auth: config.type === 'collection' && config.auth,
     fields: config.fields,
     hooks: config.hooks as Hooks<Record<string, unknown>> | undefined,
     table,
