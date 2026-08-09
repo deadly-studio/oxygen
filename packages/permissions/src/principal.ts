@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import type { Context } from 'hono'
 import type { OxygenDatabase } from '@deadly-studio/oxygen'
-import { cmsRoles, cmsUserRoles, resolveSessionUser, verifyAccessToken } from '@deadly-studio/oxygen-auth'
+import { cmsRoles, cmsUserRoles, getBearerToken, resolveSessionUser, verifyAccessToken } from '@deadly-studio/oxygen-auth'
 import { ensureSelfRoleId, SELF_ROLE } from './self-role.js'
 
 export interface RoleRef {
@@ -19,8 +19,6 @@ export interface ResolvePrincipalOptions {
   cookieSecret?: string
   jwtSecret?: string
 }
-
-const BEARER_PREFIX = 'Bearer '
 
 /**
  * Identifies the requesting principal and their roles, checking both auth
@@ -47,13 +45,11 @@ export async function resolvePrincipal(db: OxygenDatabase, c: Context, options: 
   }
 
   if (options.jwtSecret) {
-    const authHeader = c.req.header('authorization')
-    if (authHeader?.startsWith(BEARER_PREFIX)) {
-      const payload = await verifyAccessToken(options.jwtSecret, authHeader.slice(BEARER_PREFIX.length))
-      if (payload) {
-        const selfRoleId = await ensureSelfRoleId(db)
-        return { userId: payload.sub, roles: [{ id: selfRoleId, name: SELF_ROLE }] }
-      }
+    const token = getBearerToken(c)
+    const payload = token ? await verifyAccessToken(options.jwtSecret, token) : undefined
+    if (payload) {
+      const selfRoleId = await ensureSelfRoleId(db)
+      return { userId: payload.sub, roles: [{ id: selfRoleId, name: SELF_ROLE }] }
     }
   }
 

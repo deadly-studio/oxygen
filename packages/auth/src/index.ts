@@ -10,6 +10,8 @@ export { appOtpAuth } from './app-auth.js'
 export type { AppOtpAuthOptions } from './app-auth.js'
 export { verifyAccessToken } from './app-tokens.js'
 export type { AppTokenPair, AppTokenPayload } from './app-tokens.js'
+// Phase 11 — context helpers for a consumer's own routes mounted alongside oxygen() — see docs/GUIDE.md#custom-routes.
+export { getAppUser, getBearerToken } from './context.js'
 export {
   cmsUsers,
   cmsRoles,
